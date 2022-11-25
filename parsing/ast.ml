@@ -1,32 +1,35 @@
-
 (* arbres issus du parseur *)
 
 type location = Lexing.position * Lexing.position
-
 type ident = { loc : location; id : string }
-
-type unop =
-  | Uneg | Unot | Uamp | Ustar
+type unop = Uneg | Unot | Uamp | Ustar
 
 type binop =
-  | Badd | Bsub | Bmul | Bdiv | Bmod
-  | Beq | Bne | Blt | Ble | Bgt | Bge
-  | Band | Bor (* && || *)
+  | Badd
+  | Bsub
+  | Bmul
+  | Bdiv
+  | Bmod
+  | Beq
+  | Bne
+  | Blt
+  | Ble
+  | Bgt
+  | Bge
+  | Band
+  | Bor (* && || *)
 
-type constant =
-  | Cbool of bool
-  | Cint of int64
-  | Cstring of string
+type constant = Cbool of bool | Cint of int64 | Cstring of string
 
 type ptyp =
-  | PTident of ident (* bool, int, struct id *)
-  | PTptr   of ptyp
+  (* parsing type *)
+  | PTident of ident
+  (* bool, int, struct id *)
+  | PTptr of ptyp (* pointeur *)
 
 type incdec = Inc | Dec (* ++ -- *)
 
-type pexpr =
-  { pexpr_desc : pexpr_desc;
-    pexpr_loc  : location; }
+type pexpr = { pexpr_desc : pexpr_desc; pexpr_loc : location }
 
 and pexpr_desc =
   | PEskip
@@ -48,23 +51,14 @@ and pexpr_desc =
 and pparam = ident * ptyp
 
 type pfunc = {
-  pf_name   : ident;
+  pf_name : ident;
   pf_params : pparam list;
-  pf_typ    : ptyp list;
-  pf_body   : pexpr;
+  pf_typ : ptyp list;
+  pf_body : pexpr;
 }
 
 type pfield = ident * ptyp
-
-type pstruct = {
-  ps_name   : ident;
-  ps_fields : pfield list;
-}
-
-type pdecl =
-  | PDfunction of pfunc
-  | PDstruct   of pstruct
-
+type pstruct = { ps_name : ident; ps_fields : pfield list }
+type pdecl = PDfunction of pfunc | PDstruct of pstruct
 type import_fmt = bool
-
 type pfile = import_fmt * pdecl list
