@@ -7,18 +7,31 @@ let debug = ref false
 let dummy_loc = (Lexing.dummy_pos, Lexing.dummy_pos)
 
 exception Error of Ast.location * string
+exception ErrorExpr of Ast.location * string * pexpr_desc
 exception Anomaly of string
 
 let error loc e = raise (Error (loc, e))
-
+let error_expr loc e expr = raise (ErrorExpr (loc, e, expr))
 (* TODO environnement pour les types structure *)
 
 (* TODO environnement pour les fonctions *)
 
+let rec string_of_type = function
+  | Tint -> "int"
+  | Tbool -> "bool"
+  | Tstring -> "string"
+  | Tptr t -> "*" ^ string_of_type t
+  | Twild -> "_"
+  | Tstruct { s_name; _ } -> "struct " ^ s_name
+  | Tmany t ->
+      List.fold_left (fun acc t -> acc ^ string_of_type t ^ " ") "[" t ^ "]"
+
 let rec type_type = function
-  | PTident { id = "int" } -> Tint
-  | PTident { id = "bool" } -> Tbool
-  | PTident { id = "string" } -> Tstring
+  | PTident { id = "int"; _ } -> Tint
+  | PTident { id = "bool"; _ } -> Tbool
+  | PTident { id = "string"; _ } -> Tstring
+  | PTident { id; _ } ->
+      Tstruct { s_name = id; s_fields = Hashtbl.create 10; s_size = 0 }
   | PTptr ty -> Tptr (type_type ty)
   | _ -> error dummy_loc "unknown struct "
 (* TODO type structure *)
@@ -78,14 +91,32 @@ let tvoid = Tmany []
 let make d ty = { expr_desc = d; expr_typ = ty }
 let stmt d = make d tvoid
 
+let type_of_const = function
+  | Cint _ -> Tint
+  | Cbool _ -> Tbool
+  | Cstring _ -> Tstring
+
 let rec expr env e =
   let e, ty, rt = expr_desc env e.pexpr_loc e.pexpr_desc in
   ({ expr_desc = e; expr_typ = ty }, rt)
 
-and expr_desc env loc = function
+(**  returns the expr, the type of the expr and if a format import is needed
+*)
+and expr_desc env loc expr_p =
+  match expr_p with
   | PEskip -> (TEskip, tvoid, false)
-  | PEconstant c -> (* TODO *) (TEconstant c, tvoid, false)
-  | PEbinop (op, e1, e2) -> (* TODO *) assert false
+  | PEconstant c -> (TEconstant c, type_of_const c, false)
+  | PEbinop (op, e1, e2) ->
+      let ({ expr_typ = typ1; _ } as e1), need_f1 = expr env e1 in
+      let ({ expr_typ = typ2; _ } as e2), need_f2 = expr env e2 in
+      if typ1 = typ2 && typ1 = Tint then
+        (TEbinop (op, e1, e2), Tint, need_f1 || need_f2)
+      else
+        error_expr loc
+          (Printf.sprintf
+             "type error in binary operation, expected type Int, got %s and %s"
+             (string_of_type typ1) (string_of_type typ2))
+          expr_p
   | PEunop (Uamp, e1) -> (* TODO *) assert false
   | PEunop (((Uneg | Unot | Ustar) as op), e1) -> (* TODO *) assert false
   | PEcall ({ id = "fmt.Print" }, el) -> (* TODO *) (TEprint [], tvoid, false)
