@@ -1,0 +1,12 @@
+(library
+ (name parsing)
+ (wrapped false)
+ (modules lexer parser ast tast typing lib))
+
+(ocamllex
+ (modules lexer))
+
+(menhir
+ (flags -v)
+ (modules parser))
+

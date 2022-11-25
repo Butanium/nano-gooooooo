@@ -176,7 +176,7 @@ simple_stmt_desc:
 | lvl = exprs EQ el=exprs
   { PEassign (lvl, el) }
 | lvl = exprs COLONEQ el=exprs
-  { let var = function {pexpr_desc=PEident id} -> id | _ -> raise Error in
+  { let var = function {pexpr_desc=PEident id; _} -> id | _ -> raise Error in
     PEvars (List.map var lvl, None, el) }
 | e = expr i = incdec
   { PEincdec (e, i) }
@@ -213,7 +213,7 @@ expr_desc:
    { PEcall (id, el) }
 | e = expr DOT id = ident; el = arguments
    { match e.pexpr_desc, id.id with
-     | PEident {id="fmt"}, "Print" -> PEcall ({id with id = "fmt.Print"}, el)
+     | PEident {id="fmt";_}, "Print" -> PEcall ({id with id = "fmt.Print"}, el)
      | _ -> raise Error }
 | e1 = expr; op = binop; e2 = expr
   { PEbinop (op, e1, e2) }

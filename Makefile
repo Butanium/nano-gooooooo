@@ -4,7 +4,7 @@ EXE=_build/default/main.exe
 all: $(EXE)
 
 $(EXE): *.ml*
-	dune build @all
+	dune build @all --profile release
 	cp $(EXE) ngoc 
 
 test: $(EXE) test.go
