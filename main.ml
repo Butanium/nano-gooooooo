@@ -2,15 +2,15 @@
 
 open Format
 open Lexing
-open Lexer
-open Parser
+open GoLexer
+open GoParser
 open Usage
 
 let () =
   let c = open_in file in
   let lb = Lexing.from_channel c in
   try
-    let f = Parser.file Lexer.next_token lb in
+    let f = GoParser.file GoLexer.next_token lb in
     close_in c;
 
     if debug then (
@@ -33,18 +33,18 @@ let () =
 
     if !type_only then exit 0;
 
-    let code = Compile.file ~debug f in
+    let code = GoCompile.file ~debug f in
 
     let c = open_out (Filename.chop_suffix file ".go" ^ ".s") in
     let fmt = formatter_of_out_channel c in
     X86_64.print_program fmt code;
     close_out c
   with
-  | Lexer.Lexing_error s ->
+  | GoLexer.Lexing_error s ->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "lexical error: %s\n@." s;
       exit 1
-  | Parser.Error ->
+  | GoParser.Error ->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "syntax error\n@.";
       exit 1
@@ -55,8 +55,8 @@ let () =
   | Typing.Anomaly msg ->
       eprintf "Typing Anomaly: %s\n@." msg;
       exit 2
-  | Compile.Anomaly msg ->
-      eprintf "Compile Anomaly: %s\n@." msg;
+  | GoCompile.Anomaly msg ->
+      eprintf "GoCompile Anomaly: %s\n@." msg;
       exit 2
   | e ->
       eprintf "Anomaly: %s\n@." (Printexc.to_string e);

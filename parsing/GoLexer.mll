@@ -4,7 +4,7 @@
 {
   open Lexing
   open Ast
-  open Parser
+  open GoParser
 
   exception Lexing_error of string
 
