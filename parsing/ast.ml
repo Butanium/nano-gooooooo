@@ -2,7 +2,7 @@
 
 type location = Lexing.position * Lexing.position
 type ident = { loc : location; id : string }
-type unop = Uneg | Unot | Uamp | Ustar
+type unop = Uneg | Unot | Uamp | Ustar (* -e, !e, &e, *e *)
 
 type binop =
   | Badd

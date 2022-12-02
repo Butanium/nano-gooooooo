@@ -60,7 +60,7 @@ type env = {
 let empty_env =
   { exit_label = ""; ofs_this = -1; nb_locals = ref 0; next_local = 0 }
 
-let mk_bool d = { expr_desc = d; expr_typ = Tbool }
+let mk_bool d = { expr_desc = d; expr_type = Tbool }
 
 (* f reçoit le label correspondant à ``renvoyer vrai'' *)
 let compile_bool f =

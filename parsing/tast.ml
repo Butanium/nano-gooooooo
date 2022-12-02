@@ -48,7 +48,7 @@ and var = {
 
 and expr =
   { expr_desc: expr_desc;
-    expr_typ : typ; }
+    expr_type : typ; }
 
 and expr_desc =
   | TEskip

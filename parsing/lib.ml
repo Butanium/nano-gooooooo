@@ -25,6 +25,6 @@ let rec print_list sep print fmt = function
       print_list sep print fmt r
 
 let space fmt () = fprintf fmt "@ "
-let nothing fmt () = ()
+let nothing _ () = ()
 let comma fmt () = fprintf fmt ", "
 let newline fmt () = fprintf fmt "@\n"
