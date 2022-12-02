@@ -53,7 +53,7 @@ and pparam = ident * ptyp
 type pfunc = {
   pf_name : ident;
   pf_params : pparam list;
-  pf_typ : ptyp list;
+  pf_return_types : ptyp list;
   pf_body : pexpr;
 }
 

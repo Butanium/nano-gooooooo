@@ -62,7 +62,7 @@ decl:
   SEMICOLON
   { PDfunction { pf_name = id;
                  pf_params = List.flatten pl;
-                 pf_typ = ty;
+                 pf_return_types = ty;
                  pf_body = b } }
 | TYPE id = ident STRUCT LEFTBRACE; fl=loption(fields); RIGHTBRACE SEMICOLON
   { PDstruct { ps_name = id; ps_fields = List.flatten fl; } }
@@ -84,12 +84,12 @@ ids_and_type:
 
 return_type:
 | ty = type_expr                               { [ty] }
-| LEFTPAR tyl = return_types RIGHTPAR { tyl }
+| LEFTPAR tyl = pf_return_types RIGHTPAR { tyl }
 ;
 
-return_types:
+pf_return_types:
 | ty = type_expr; COMMA?                    { [ty] }
-| ty = type_expr; COMMA; tyl = return_types { ty :: tyl }
+| ty = type_expr; COMMA; tyl = pf_return_types { ty :: tyl }
 ;
 
 type_expr:

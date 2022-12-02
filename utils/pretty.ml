@@ -178,10 +178,10 @@ let get_ast_pfield (ident, ptyp) parent_id =
 let get_ast_pdecl pdecl parent_id =
   let create_node = create_node parent_id in
   match pdecl with
-  | PDfunction { pf_name; pf_params; pf_typ; pf_body } ->
+  | PDfunction { pf_name; pf_params; pf_return_types; pf_body } ->
     create_node "PDfunction" [ "pf_name.id = \"" ^ pf_name.id ^ "\"" ] [
       ("pf_params", fold_children get_ast_pparam pf_params);
-      ("pf_typ", fold_children get_ast_typ pf_typ);
+      ("pf_return_types", fold_children get_ast_typ pf_return_types);
       ("pf_body", get_ast_pexpr pf_body)
     ]
 
@@ -250,10 +250,10 @@ let rec get_tast_expr { expr_desc } parent_id =
       ("typ", get_tast_typ typ)
     ]
 
-  | TEcall ({ fn_name; fn_params; fn_typ }, exprs) ->
+  | TEcall ({ fn_name; fn_params; return_types }, exprs) ->
     create_node "TEcall" ["fn_name = \"" ^ fn_name ^ "\""] [
       ("fn_params", fold_children get_tast_var fn_params);
-      ("fn_typ", fold_children get_tast_typ fn_typ);
+      ("return_types", fold_children get_tast_typ return_types);
       ("expr_list", fold_children get_tast_expr exprs)
     ]
 
@@ -312,10 +312,10 @@ let get_ast_pparam (ident, ptyp) parent_id =
 let get_tast_tdecl tdecl parent_id =
   let create_node = create_node parent_id in
   match tdecl with
-  | TDfunction ({ fn_name; fn_params; fn_typ }, expr) ->
+  | TDfunction ({ fn_name; fn_params; return_types }, expr) ->
     create_node "TDfunction" [ "fn_name = \"" ^ fn_name ^ "\"" ] [
       ("fn_params", fold_children get_tast_var fn_params);
-      ("fn_typ", fold_children get_tast_typ fn_typ);
+      ("return_types", fold_children get_tast_typ return_types);
       ("expr", get_tast_expr expr)
     ]
 
