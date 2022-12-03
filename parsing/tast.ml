@@ -5,7 +5,11 @@ type binop = Ast.binop
 type constant = Ast.constant
 type incdec = Ast.incdec
 
-type function_ = { fn_name : string; fn_params : var list; return_types : typ list }
+type function_ = {
+  fn_name : string;
+  fn_params : var list;
+  return_types : typ list;
+}
 
 and field = {
   f_name : string;
