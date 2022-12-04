@@ -113,5 +113,7 @@ val sizeof : ?loc:Ast.location -> Tast.typ -> int
 val phase2 : Tast.structure Henv.t -> Tast.function_ Henv.t -> Ast.pdecl -> unit
 val decl : Tast.structure Henv.t -> 'a -> Ast.pdecl -> Tast.tdecl *)
 
+val sizeof : ?loc:Ast.location -> Tast.typ -> int
+
 val file :
-  debug:bool -> bool * Ast.pdecl list -> ('a -> Ast.pdecl -> Tast.tdecl) list
+  debug:bool -> bool * Ast.pdecl list -> Tast.tdecl list
