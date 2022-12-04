@@ -90,7 +90,7 @@ let fmt_used = ref false
 let fmt_imported = ref false
 let evar v = { expr_desc = TEident v; expr_type = v.v_typ }
 
-let new_var =
+let new_var ?(v_depth = 0) =
   let id = ref 0 in
   fun x loc ?(used = false) ty ->
     incr id;
@@ -101,7 +101,7 @@ let new_var =
       v_typ = ty;
       v_used = used;
       v_addr = 0;
-      v_depth = 0;
+      v_depth;
     }
 
 module Env : sig
@@ -112,10 +112,16 @@ module Env : sig
   val find_exn : location -> 'a M.t -> M.key -> 'a
   val all_vars : var list ref
   val check_unused : unit -> unit
-  val add_var : var M.t -> var -> var M.t
+  val add_var : loc:location -> var M.t -> var -> var M.t
 
   val add_new_var :
-    tag -> location -> ?used:bool -> typ -> var M.t -> var M.t * var
+    tag ->
+    location ->
+    v_depth:int ->
+    ?used:bool ->
+    typ ->
+    var M.t ->
+    var M.t * var
 end = struct
   module M = Map.Make (String)
 
@@ -127,7 +133,14 @@ end = struct
   let find_exn loc env k =
     match M.find_opt k env with Some r -> r | None -> throw_undeclared loc k
 
-  let add_var env v = M.add v.v_name v env
+  let add_var ~loc env v =
+    (match M.find_opt v.v_name env with
+    | None -> ()
+    | Some other_v ->
+        if v.v_depth = other_v.v_depth then
+          error loc (sprintf "Var %s is redeclared in this block" v.v_name));
+    M.add v.v_name v env
+
   let all_vars = ref []
 
   let check_unused () =
@@ -137,13 +150,20 @@ end = struct
     in
     List.iter check !all_vars
 
-  let add_new_var x loc ?used ty env =
-    let v = new_var x loc ?used ty in
+  let add_new_var x loc ~v_depth ?used ty env =
+    let v = new_var x loc ~v_depth ?used ty in
     all_vars := v :: !all_vars;
-    (add_var env v, v)
+    (add_var ~loc env v, v)
 
   (* TODO type () et vecteur de types *)
 end
+
+let rec left_value expr =
+  match expr.expr_desc with
+  | TEident _ -> true
+  | TEdot (el, _) -> left_value el
+  | TEunop (Ustar, el) -> el.expr_desc <> TEnil
+  | _ -> false
 
 let tvoid = Tmany []
 let make d ty = { expr_desc = d; expr_type = ty }
@@ -168,26 +188,47 @@ let get_unop_type loc unop expr =
       | _ -> throw_expected_type loc ~expected:(Tptr Twild) expr.expr_type)
   | Uamp -> Tptr expr.expr_type
 
-let unfold_many =
+let unfold_many loc =
   let rec aux = function
+    | Tmany [] :: _ | Tmany (_ :: _ :: _) :: _ ->
+        error loc "Can't unpack values"
     | Tmany [ t ] :: ts | t :: ts -> t :: aux ts
     | [] -> []
   in
   function [ Tmany l ] | l -> aux l
 
+let ret_binop = function
+  | Badd | Bsub | Bmul | Bdiv | Bmod -> Tint
+  | Beq | Bne | Blt | Ble | Bgt | Bge | Band | Bor -> Tbool
+
+let check_binop loc e1 e2 = function
+  | Badd | Bsub | Bmul | Bdiv | Bmod | Bge | Bgt | Ble | Blt ->
+      check_type loc ~expected:Tint e1.expr_type;
+      check_type loc ~expected:Tint e2.expr_type
+  | Band | Bor ->
+      check_type loc ~expected:Tbool e1.expr_type;
+      check_type loc ~expected:Tbool e2.expr_type
+  | Beq | Bne ->
+      if e1.expr_type ==! e2.expr_type then
+        error loc "Can't compare values of different types";
+      if e1.expr_desc = TEnil && e2.expr_desc = TEnil then
+        error loc "Can't compare 2 nil values"
+
 let type_function_body (structs : structure Henv.t) funs fun_ =
-  let rec type_expr env e : expr * bool =
-    let e, ty, rt = expr_desc env e.pexpr_loc e.pexpr_desc in
+  let rec type_expr env depth e : expr * bool =
+    let e, ty, rt = expr_desc env depth e.pexpr_loc e.pexpr_desc in
     ({ expr_desc = e; expr_type = ty }, rt)
-  and just_expr env e = type_expr env e |> fst
-  and type_in_block env (e : pexpr) =
+  and just_expr env depth e = type_expr env depth e |> fst
+  and type_in_block env depth (e : pexpr) =
     match e.pexpr_desc with
     | PEvars (ids, opt_t, exprs) ->
         if opt_t = None && exprs = [] then
           error e.pexpr_loc "missing variable type initialization";
-        let t_exprs = List.map (fun e -> type_expr env e |> fst) exprs in
+        let t_exprs = List.map (fun e -> type_expr env depth e |> fst) exprs in
         (match opt_t with
-        | None -> ()
+        | None ->
+            if exprs = [] then
+              error e.pexpr_loc "Missing variable type or initialization"
         | Some t -> (
             let t = type_type structs t in
             match List.find_opt (fun e -> e.expr_type <> t) t_exprs with
@@ -198,12 +239,27 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
                      "expected all values to be of type %s, got %s instead"
                      (string_of_type t)
                      (string_of_type err.expr_type))));
-        let types = List.map (fun e -> e.expr_type) t_exprs |> unfold_many in
+        let types =
+          if t_exprs <> [] then
+            List.map (fun e -> e.expr_type) t_exprs |> unfold_many e.pexpr_loc
+          else
+            List.init (List.length ids)
+              (Fun.const @@ type_type structs @@ Option.get opt_t)
+        in
+        let lt = List.length types in
+        let l_expected = List.length ids in
+        if lt <> l_expected then
+          error e.pexpr_loc
+            (sprintf "%s values to unpack : expected %d, got %d"
+               (if lt > l_expected then "To many" else "Not enough")
+               l_expected lt);
         let env, vars =
           List.fold_left2
             (fun (env, vars) name typ ->
               if name.id <> "_" then
-                let env, var = Env.add_new_var name.id name.loc typ env in
+                let env, var =
+                  Env.add_new_var ~v_depth:depth name.id name.loc typ env
+                in
                 (env, var :: vars)
               else (env, vars))
             (env, []) ids types
@@ -212,28 +268,23 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
           { expr_desc = TEvars (List.rev vars, t_exprs); expr_type = tvoid },
           false )
     | _ ->
-        let e, rt = type_expr env e in
+        let e, rt = type_expr env depth e in
         (env, e, rt)
   (*  returns the expr, the type of the expr and if there will be a return statement in any case *)
-  and expr_desc env loc expr_p =
+  and expr_desc env depth loc expr_p =
     match expr_p with
     | PEskip -> (TEskip, tvoid, false)
     | PEconstant c -> (TEconstant c, type_of_const c, false)
     | PEbinop (op, e1, e2) ->
-        let ({ expr_type = typ1; _ } as e1), _ = type_expr env e1 in
-        let ({ expr_type = typ2; _ } as e2), _ = type_expr env e2 in
-        if typ1 = typ2 && typ1 = Tint then (TEbinop (op, e1, e2), Tint, false)
-        else
-          error loc
-            (sprintf
-               "type error in binary operation, expected type Int, got %s and \
-                %s"
-               (string_of_type typ1) (string_of_type typ2))
+        let e1, _ = type_expr env depth e1 in
+        let e2, _ = type_expr env depth e2 in
+        check_binop loc e1 e2 op;
+        (TEbinop (op, e1, e2), ret_binop op, false)
     | PEunop (op, e1) ->
-        let expr, rt = type_expr env e1 in
+        let expr, rt = type_expr env depth e1 in
         (TEunop (op, expr), get_unop_type loc op expr, false)
     | PEcall ({ id = "fmt.Print"; _ }, el) ->
-        let el = List.map (just_expr env) el in
+        let el = List.map (just_expr env depth) el in
         fmt_used := true;
         if not !fmt_imported then
           error loc "package fmt is used but not imported";
@@ -251,35 +302,35 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         (* declaration d'un pointeur ty *)
     | PEcall ({ id = "new"; loc }, _) -> error loc "new expects a type"
     | PEcall (id, el) ->
-        let t_els = List.map (just_expr env) el in
-        let types = List.map (fun e -> e.expr_type) t_els |> unfold_many in
+        let t_els = List.map (just_expr env depth) el in
+        let types = List.map (fun e -> e.expr_type) t_els |> unfold_many loc in
         let func = Henv.find_exn ~loc funs id.id in
         let n_arg = List.length types in
         let exp_n = List.length func.fn_params in
         if n_arg <> exp_n then
           error loc
-            (Printf.sprintf
-               "Expected %d arguement for function %s, got %d instead" exp_n
-               func.fn_name n_arg);
+            (sprintf "Expected %d arguement for function %s, got %d instead"
+               exp_n func.fn_name n_arg);
         List.iter2
           (fun typ param ->
             if typ ==! param.v_typ then
               error loc
-                (Printf.sprintf
-                   "Parameter %s is expected to have type %s, not %s"
+                (sprintf "Parameter %s is expected to have type %s, not %s"
                    param.v_name
                    (string_of_type param.v_typ)
                    (string_of_type typ)))
           types func.fn_params;
         (TEcall (func, t_els), Tmany func.return_types, false)
     | PEfor (e, b) ->
-        let b, _ = type_expr env b in
+        let b, _ = type_expr env depth b in
         check_type loc ~expected:Tbool b.expr_type;
-        let e, _ = type_expr env e in
+        let e, _ = type_expr env (depth + 1) e in
         (TEfor (e, b), tvoid, false)
     | PEif (e1, e2, e3) ->
         let f = type_expr env in
-        let (e1, _), (e2, rtThen), (e3, rtElse) = (f e1, f e2, f e3) in
+        let (e1, _), (e2, rtThen), (e3, rtElse) =
+          (f depth e1, f (depth + 1) e2, f (depth + 1) e3)
+        in
         check_type loc ~expected:Tbool e1.expr_type;
         (TEif (e1, e2, e3), tvoid, rtThen && rtElse)
     | PEnil -> (TEnil, Tptr Twild, false)
@@ -287,7 +338,7 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         let v = Env.find_exn loc env id in
         (TEident v, v.v_typ, false)
     | PEdot (e, id) ->
-        let e, _ = type_expr env e in
+        let e, _ = type_expr env depth e in
         let field =
           match e.expr_type with
           | Tstruct structure | Tptr (Tstruct structure) -> (
@@ -305,38 +356,40 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         in
         (TEdot (e, field), field.f_typ, false)
     | PEassign (lvl, el) ->
-        let tlvls = List.map (just_expr env) lvl in
-        let tels = List.map (just_expr env) el in
-        (* TODO add a check for left values*)
+        let tlvls = List.map (just_expr env depth) lvl in
+        (match List.find_opt (fun x -> not @@ left_value x) tlvls with
+        | Some x -> error loc "expected left value"
+        | _ -> ());
+        let tels = List.map (just_expr env depth) el in
         (TEassign (tlvls, tels), tvoid, false)
     | PEreturn el ->
-        let typed_els = List.map (fun e -> type_expr env e |> fst) el in
+        let typed_els = List.map (fun e -> type_expr env depth e |> fst) el in
         if
           List.map (fun e -> e.expr_type) typed_els
-          |> unfold_many = fun_.return_types
+          |> unfold_many loc = fun_.return_types
         then (TEreturn typed_els, tvoid, true)
         else error loc "Return values don't match function return type"
     | PEblock el ->
         let (_, rt), t_els =
           List.fold_left_map
             (fun (env, acc_rt) expr ->
-              let env, e, rt = type_in_block env expr in
+              let env, e, rt = type_in_block env (depth + 1) expr in
               ((env, acc_rt || rt), e))
             (env, false) el
         in
         (TEblock t_els, tvoid, rt)
     | PEincdec (e, op) ->
-        let e, fmt = type_expr env e in
+        let e, fmt = type_expr env depth e in
         check_type loc ~expected:Tint e.expr_type;
-        (* todo : add check for left value *)
+        if not @@ left_value e then error loc "expected left value";
         (TEincdec (e, op), tvoid, fmt)
     | PEvars _ -> error loc "Unexpected variable declaration"
   in
-
-  List.fold_left
-    (fun env param -> Env.add_var env param)
-    Env.empty fun_.fn_params
-  |> type_expr
+  (List.fold_left
+     (fun env param -> Env.add_var ~loc:dummy_loc env param)
+     Env.empty fun_.fn_params
+  |> type_expr)
+    0
 
 let dummy_function _ = assert false
 
@@ -397,7 +450,6 @@ let phase2 structs funs = function
         |> snd |> List.rev
       in
       let return_types = List.map (type_type structs) pf_return_types in
-      (* todo what is v_depth*)
       Henv.add loc funs id { fn_name = id; fn_params; return_types }
   | PDstruct { ps_name = { id; _ }; ps_fields } ->
       let structure = Henv.find structs id in
