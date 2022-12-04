@@ -1,6 +1,7 @@
 open Ast
 open Printf
 open Tast
+[@@@warning "-26"]
 
 let is_pretty = ref true
 

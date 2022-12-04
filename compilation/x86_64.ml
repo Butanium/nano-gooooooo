@@ -3,6 +3,7 @@
    2008 Jean-Christophe Filliâtre (CNRS)
    2013 Kim Nguyen (Université Paris Sud)
 *)
+[@@@warning "-26"]
 
 open Format
 

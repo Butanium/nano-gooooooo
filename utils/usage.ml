@@ -4,16 +4,19 @@ open Lexing
 let usage = "usage: ./ngoc [options] file.go"
 
 let debug = ref false
+let stack_trace = ref false
 let no_pretty = ref false
 let parse_only = ref false
 let type_only = ref false
 
 let spec =
   [ "--debug",        Arg.Set debug,        "\truns in debug mode";
+    "--trace",        Arg.Set stack_trace,        "\tdon't catch erro and display stack trace";
     "--no-pretty",    Arg.Set no_pretty,    "\tdisplays trees in the command line";
     "--parse-only",   Arg.Set parse_only,   "\tstops after parsing";
     "--type-only",    Arg.Set type_only,    "\tstops after typing";
-  ]
+  
+    ]
 
 let file =
   let file = ref None in
@@ -26,7 +29,7 @@ let file =
   match !file with Some f -> f | None -> Arg.usage spec usage; exit 1
 
 let debug = !debug
-
+let stack_trace = !stack_trace
 let warning (b, e) msg =
   let l = b.pos_lnum in
   let fc = b.pos_cnum - b.pos_bol in
