@@ -76,6 +76,7 @@ let rec type_type env_struct = function
 
 let rec eq_type ty1 ty2 =
   match (ty1, ty2) with
+  | Tptr Twild, Tptr _ | Tptr _, Tptr Twild -> true
   | Tint, Tint | Tbool, Tbool | Tstring, Tstring -> true
   | Tstruct s1, Tstruct s2 -> s1 == s2
   | Tptr ty1, Tptr ty2 -> eq_type ty1 ty2
@@ -122,6 +123,8 @@ module Env : sig
     typ ->
     var M.t ->
     var M.t * var
+
+  exception WildInTheWild of location
 end = struct
   module M = Map.Make (String)
 
@@ -130,8 +133,13 @@ end = struct
   let empty = M.empty
   let find = M.find
 
+  exception WildInTheWild of location
+
   let find_exn loc env k =
-    match M.find_opt k env with Some r -> r | None -> throw_undeclared loc k
+    match M.find_opt k env with
+    | Some r -> r
+    | None ->
+        if k <> "_" then throw_undeclared loc k else raise @@ WildInTheWild loc
 
   let add_var ~loc env v =
     (match M.find_opt v.v_name env with
@@ -145,8 +153,8 @@ end = struct
 
   let check_unused () =
     let check v =
-      if v.v_name <> "_" && (* TODO not used *) false then
-        error v.v_loc "unused variable"
+      if v.v_name <> "_" && not v.v_used then
+        error v.v_loc (sprintf "unused variable %s" v.v_name)
     in
     List.iter check !all_vars
 
@@ -155,12 +163,12 @@ end = struct
     all_vars := v :: !all_vars;
     (add_var ~loc env v, v)
 
-  (* TODO type () et vecteur de types *)
+  (* TOD?O type () et vecteur de types *)
 end
 
 let rec left_value expr =
   match expr.expr_desc with
-  | TEident _ -> true
+  | TEident v -> (*v.v_name <> "_"*) true
   | TEdot (el, _) -> left_value el
   | TEunop (Ustar, el) -> el.expr_desc <> TEnil
   | _ -> false
@@ -214,7 +222,7 @@ let check_binop loc e1 e2 = function
       if e1.expr_desc = TEnil && e2.expr_desc = TEnil then
         error loc "Can't compare 2 nil values"
 
-let type_function_body (structs : structure Henv.t) funs fun_ =
+let type_function_body (structs : structure Henv.t) funs fun_ expr =
   let rec type_expr env depth e : expr * bool =
     let e, ty, rt = expr_desc env depth e.pexpr_loc e.pexpr_desc in
     ({ expr_desc = e; expr_type = ty }, rt)
@@ -225,20 +233,6 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         if opt_t = None && exprs = [] then
           error e.pexpr_loc "missing variable type initialization";
         let t_exprs = List.map (fun e -> type_expr env depth e |> fst) exprs in
-        (match opt_t with
-        | None ->
-            if exprs = [] then
-              error e.pexpr_loc "Missing variable type or initialization"
-        | Some t -> (
-            let t = type_type structs t in
-            match List.find_opt (fun e -> e.expr_type <> t) t_exprs with
-            | None -> ()
-            | Some err ->
-                error e.pexpr_loc
-                  (sprintf
-                     "expected all values to be of type %s, got %s instead"
-                     (string_of_type t)
-                     (string_of_type err.expr_type))));
         let types =
           if t_exprs <> [] then
             List.map (fun e -> e.expr_type) t_exprs |> unfold_many e.pexpr_loc
@@ -246,6 +240,20 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
             List.init (List.length ids)
               (Fun.const @@ type_type structs @@ Option.get opt_t)
         in
+        (match opt_t with
+        | None ->
+            if exprs = [] then
+              error e.pexpr_loc "Missing variable type or initialization"
+        | Some t -> (
+            let t = type_type structs t in
+            match List.find_opt (fun typ -> typ ==! t) types with
+            | None -> ()
+            | Some err ->
+                error e.pexpr_loc
+                  (sprintf
+                     "expected all values to be of type %s, got %s instead"
+                     (string_of_type t) (string_of_type err))));
+
         let lt = List.length types in
         let l_expected = List.length ids in
         if lt <> l_expected then
@@ -282,6 +290,9 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         (TEbinop (op, e1, e2), ret_binop op, false)
     | PEunop (op, e1) ->
         let expr, rt = type_expr env depth e1 in
+        if op = Uamp then
+          if not (left_value expr) then
+            error loc "Can't take the address of a non left value";
         (TEunop (op, expr), get_unop_type loc op expr, false)
     | PEcall ({ id = "fmt.Print"; _ }, el) ->
         let el = List.map (just_expr env depth) el in
@@ -336,6 +347,7 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
     | PEnil -> (TEnil, Tptr Twild, false)
     | PEident { id; loc } ->
         let v = Env.find_exn loc env id in
+        v.v_used <- true;
         (TEident v, v.v_typ, false)
     | PEdot (e, id) ->
         let e, _ = type_expr env depth e in
@@ -356,7 +368,17 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         in
         (TEdot (e, field), field.f_typ, false)
     | PEassign (lvl, el) ->
-        let tlvls = List.map (just_expr env depth) lvl in
+        let tlvls =
+          List.map
+            (fun e ->
+              try just_expr env depth e
+              with Env.WildInTheWild loc ->
+                {
+                  expr_desc = TEident (new_var "_" loc ~used:true Twild);
+                  expr_type = Twild;
+                })
+            lvl
+        in
         (match List.find_opt (fun x -> not @@ left_value x) tlvls with
         | Some x -> error loc "expected left value"
         | _ -> ());
@@ -385,11 +407,16 @@ let type_function_body (structs : structure Henv.t) funs fun_ =
         (TEincdec (e, op), tvoid, fmt)
     | PEvars _ -> error loc "Unexpected variable declaration"
   in
-  (List.fold_left
-     (fun env param -> Env.add_var ~loc:dummy_loc env param)
-     Env.empty fun_.fn_params
-  |> type_expr)
-    0
+  try
+    (List.fold_left
+       (fun env param ->
+         if param.v_name <> "_" then Env.add_var ~loc:dummy_loc env param
+         else env)
+       Env.empty fun_.fn_params
+    (* |> Env.add_new_var "_" dummy_loc ~used:true ~v_depth:0 Twild |> fst *)
+    |> type_expr)
+      0 expr
+  with Env.WildInTheWild loc -> error loc "cannot use _ as a value or a type"
 
 let dummy_function _ = assert false
 
