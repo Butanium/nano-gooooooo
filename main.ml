@@ -14,6 +14,8 @@ let () =
     close_in c;
 
     if debug then (
+      Printexc.record_backtrace true;
+      printf "debugging....\n%!";
       let ast_dot_file =
         open_out (Filename.chop_suffix file ".go" ^ "_ast.dot")
       in
@@ -40,24 +42,24 @@ let () =
     X86_64.print_program fmt code;
     close_out c
   with
-  | GoLexer.Lexing_error s ->
+  | GoLexer.Lexing_error s when not stack_trace->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "lexical error: %s\n@." s;
       exit 1
-  | GoParser.Error ->
+  | GoParser.Error when not stack_trace->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "syntax error\n@.";
       exit 1
-  | Typing.Error (l, msg) ->
+  | Typing.Error (l, msg) when not stack_trace->
       report_loc l;
       eprintf "error: %s\n@." msg;
       exit 1
-  | Typing.Anomaly msg ->
+  | Typing.Anomaly msg when not stack_trace->
       eprintf "Typing Anomaly: %s\n@." msg;
       exit 2
-  | GoCompile.Anomaly msg ->
+  | GoCompile.Anomaly msg when not stack_trace ->
       eprintf "GoCompile Anomaly: %s\n@." msg;
       exit 2
-  | e ->
+  | e when not stack_trace->
       eprintf "Anomaly: %s\n@." (Printexc.to_string e);
       exit 2
