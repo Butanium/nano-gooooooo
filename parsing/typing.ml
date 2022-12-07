@@ -458,23 +458,15 @@ let rec sizeof ?(loc = dummy_loc) = function
 (* 2. declare functions and type fields *)
 let phase2 structs funs = function
   | PDfunction { pf_name = { id; loc }; pf_params; pf_return_types; _ } ->
+      let names = Hashtbl.create 10 in
       let fn_params =
-        List.fold_left
-          (fun (v_id, vars) ({ id = v_name; loc = v_loc }, typ) ->
-            ( v_id + 1,
-              {
-                v_name;
-                v_id;
-                v_loc;
-                v_typ = type_type structs typ;
-                v_depth = -1;
-                v_used = false;
-                v_addr = 0;
-                (* dummy init *)
-              }
-              :: vars ))
-          (1, []) pf_params
-        |> snd |> List.rev
+        List.map
+          (fun ({ id = v_name; loc = v_loc }, typ) ->
+            if Hashtbl.mem names v_name then
+              error v_loc (sprintf "duplicate parameter %s" v_name);
+            Hashtbl.add names v_name true;
+            new_var v_name v_loc (type_type structs typ))
+          pf_params
       in
       let return_types = List.map (type_type structs) pf_return_types in
       Henv.add loc funs id { fn_name = id; fn_params; return_types }
@@ -483,6 +475,8 @@ let phase2 structs funs = function
       List.iter
         (fun (ident, ptyp) ->
           let f_typ = type_type structs ptyp in
+          if Hashtbl.mem structure.s_fields ident.id then
+            error ident.loc (sprintf "duplicate field %s" ident.id);
           Hashtbl.add structure.s_fields ident.id
             { f_name = ident.id; f_typ; f_ofs = 0 })
         ps_fields
