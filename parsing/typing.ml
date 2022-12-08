@@ -29,9 +29,10 @@ let throw_expected_type loc ~expected typ =
        (string_of_type typ))
 
 let throw_undeclared loc k = error loc (sprintf "undeclared name: %s" k)
+let unpack_1 = function Tmany [ x ] | x -> x
 
 let check_type loc ~expected typ =
-  if expected <> typ then throw_expected_type loc ~expected typ
+  if expected <> unpack_1 typ then throw_expected_type loc ~expected typ
 
 let throw_if_not loc ~expected typ =
   match (expected, typ) with
@@ -217,7 +218,7 @@ let check_binop loc e1 e2 = function
       check_type loc ~expected:Tbool e1.expr_type;
       check_type loc ~expected:Tbool e2.expr_type
   | Beq | Bne ->
-      if e1.expr_type ==! e2.expr_type then
+      if unpack_1 e1.expr_type ==! unpack_1 e2.expr_type then
         error loc "Can't compare values of different types";
       if e1.expr_desc = TEnil && e2.expr_desc = TEnil then
         error loc "Can't compare 2 nil values"
