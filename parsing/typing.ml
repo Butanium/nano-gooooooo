@@ -204,7 +204,7 @@ let unfold_many loc =
     | Tmany [ t ] :: ts | t :: ts -> t :: aux ts
     | [] -> []
   in
-  function [ Tmany l ] | l -> aux l
+  function [ Tmany (_ :: _ as l) ] | l -> aux l
 
 let ret_binop = function
   | Badd | Bsub | Bmul | Bdiv | Bmod -> Tint
