@@ -22,7 +22,7 @@ type data = [ `data ] asm
 type label = string
 (** les étiquettes d'addresses sont des chaînes de caractères *)
 
-val nop : [> ] asm
+val empty_file : [> ] asm
 (** l'instruction vide. Peut se trouver dans du text ou du data *)
 
 val ( ++ ) : ([< `text | `data ] asm as 'a) -> 'a -> 'a
@@ -360,3 +360,17 @@ val address : label list -> data
 
 val space : int -> data
 (** [space n] alloue [n] octets (valant 0) dans le segment de données *)
+
+val constint : int -> [ `Q ] operand
+(** [constint n] construit un opérande immédiat de valeur [n] *)
+
+val constint64 : int64 -> [ `Q ] operand
+(** [constint64 n] construit un opérande immédiat de valeur [n] *)
+
+val ctrue : [> ] operand
+
+val cfalse : [> ] operand
+(** [ctrue] et [cfalse] constantes booléennes *)
+
+val (!$) : string -> [> ] operand
+(** $ operande *)

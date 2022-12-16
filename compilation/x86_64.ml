@@ -103,7 +103,7 @@ let ilab (l : label) fmt () = fprintf fmt "$%a" mangle l
 
 type 'a asm = Nop | S of string | Cat of 'a asm * 'a asm
 
-let nop = Nop
+let empty_file = Nop
 let inline s = S s
 let ( ++ ) x y = Cat (x, y)
 
@@ -287,4 +287,25 @@ let print_in_file ~file p =
    x86_64 c'est juste se faire du mal avec des noms de fonctions sans voyelles
 *)
 
-let constint = imm64
+let constint64 = imm64
+let constint = imm
+let ctrue = imm 1
+let cfalse = imm 0
+let strncmp = call "strncmp"
+(*
+  rsi : pointeur sur la chaîne de caractères
+  rdi : pointeur sur la chaîne de caractères
+  rdx : nombre de caractères à comparer
+  rax : 0 si les chaînes sont égales, non zero sinon
+*)
+
+(** assume que les pointeurs de début de chaîne sont dans rsi et rdi *)
+let compare size = movq (constint size) !%rdx ++ strncmp
+
+let malloc n = movq (constint n) !%rdi ++ call "malloc"
+(*
+  rdi : taille de la zone à allouer
+  rax : pointeur sur la zone allouée *)
+
+let ( !$ ) s fmt () = fprintf fmt "$%s" s
+(* let reg r fmt () = fprintf fmt "%s" r *)
