@@ -35,7 +35,7 @@ exception Anomaly of string
 let debug = ref false
 let strings = Hashtbl.create 32
 
-let alloc_string =
+let new_string =
   let r = ref 0 in
   fun s ->
     incr r;
@@ -43,8 +43,7 @@ let alloc_string =
     Hashtbl.add strings l s;
     l
 
-let malloc n = movq (imm n) (reg rdi) ++ call "malloc"
-let allocz n = movq (imm n) (reg rdi) ++ call "allocz"
+let allocz n = movq (constint n) !%rdi ++ call "allocz"
 let sizeof = Typing.sizeof
 
 let new_label =
@@ -65,25 +64,35 @@ let empty_env =
 
 let mk_bool d = { expr_desc = d; expr_type = Tbool }
 
-(* f reçoit le label correspondant à ``renvoyer vrai'' *)
-let compile_bool f =
-  let l_true = new_label () and l_end = new_label () in
-  f l_true
-  ++ movq (imm 0) (reg rdi)
-  ++ jmp l_end ++ label l_true
-  ++ movq (imm 1) (reg rdi)
-  ++ label l_end
+(* f reçoit le label correspondant à ``renvoyer vrai''
+   let compile_bool f =
+     let l_true = new_label () and l_end = new_label () in
+     f l_true
+     ++ movq (imm 0) (reg rdi)
+     ++ jmp l_end ++ label l_true
+     ++ movq (imm 1) (reg rdi)
+     ++ label l_end *)
 
 let rec expr env e =
   match e.expr_desc with
-  | TEskip -> nop
-  | TEconstant (Cbool true) -> movq (imm 1) (reg rdi)
-  | TEconstant (Cbool false) -> movq (imm 0) (reg rdi)
-  | TEconstant (Cint x) -> movq (imm64 x) (reg rdi)
-  | TEnil -> xorq (reg rdi) (reg rdi)
-  | TEconstant (Cstring s) -> (* TODO code pour constante string *) assert false
-  | TEbinop (Band, e1, e2) -> (* TODO code pour ET logique lazy *) assert false
-  | TEbinop (Bor, e1, e2) -> (* TODO code pour OU logique lazy *) assert false
+  | TEskip -> empty_file
+  | TEconstant (Cbool true) -> movq (imm 1) !%rax
+  | TEconstant (Cbool false) -> movq cfalse !%rax
+  | TEconstant (Cint x) -> movq (constint64 x) !%rax
+  | TEnil -> movq cfalse !%rax
+  | TEconstant (Cstring s) ->
+      let l = new_string s in
+      movq !$l !%rax
+  | TEbinop (Band, e1, e2) ->
+      let skip = new_label () in
+      expr env e1 ++ (* check if rax is 0 or not *) cmpq cfalse !%rax
+      ++ (* if rax is false then don't evaluate the snd argument *) je skip
+      ++ expr env e2 ++ label skip
+  | TEbinop (Bor, e1, e2) ->
+      let skip = new_label () in
+      expr env e1 ++ (* check if rax is 0 or not *) cmpq cfalse !%rax
+      ++ (* if rax is true then don't evaluate the snd argument *) jne skip
+      ++ expr env e2 ++ label skip
   | TEbinop (((Blt | Ble | Bgt | Bge) as op), e1, e2) ->
       (* TODO code pour comparaison ints *) assert false
   | TEbinop (((Badd | Bsub | Bmul | Bdiv | Bmod) as op), e1, e2) ->
@@ -127,12 +136,11 @@ let file ?debug:(b = false) dl =
   debug := b;
   (* TODO calcul offset champs *)
   (* TODO code fonctions *)
-  let funs = List.fold_left decl nop dl in
+  let funs = List.fold_left decl empty_file dl in
   {
     text =
-      globl "main" ++ label "main" ++ call "F_main"
-      ++ xorq (reg rax) (reg rax)
-      ++ ret ++ funs
+      globl "main" ++ label "main" ++ call "F_main" ++ xorq !%rax !%rax ++ ret
+      ++ funs
       ++ inline
            "\n\
             print_int:\n\
@@ -145,5 +153,5 @@ let file ?debug:(b = false) dl =
     (* TODO appel malloc de stdlib *)
     data =
       label "S_int" ++ string "%ld"
-      ++ Hashtbl.fold (fun l s d -> label l ++ string s ++ d) strings nop;
+      ++ Hashtbl.fold (fun l s d -> label l ++ string s ++ d) strings empty_file;
   }
