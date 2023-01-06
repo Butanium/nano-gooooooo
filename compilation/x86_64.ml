@@ -4,6 +4,7 @@
    2013 Kim Nguyen (Université Paris Sud)
 *)
 [@@@warning "-26"]
+[@@@ocamlformat "break-infix = fit-or-vertical"]
 
 open Format
 
@@ -302,7 +303,13 @@ let strncmp = call "strncmp"
 (** assume que les pointeurs de début de chaîne sont dans rsi et rdi *)
 let compare size = movq (constint size) !%rdx ++ strncmp
 
-let malloc n = movq (constint n) !%rdi ++ call "malloc"
+let malloc n =
+  movq (constint n) !%rdi
+  ++ call "malloc"
+  ++ testq !%rax !%rax
+  ++ je "malloc_error"
+  ++ movq (constint 666) !%rdi
+  ++ call "exit"
 (*
   rdi : taille de la zone à allouer
   rax : pointeur sur la zone allouée *)

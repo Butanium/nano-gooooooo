@@ -372,5 +372,8 @@ val ctrue : [> ] operand
 val cfalse : [> ] operand
 (** [ctrue] et [cfalse] constantes booléennes *)
 
-val (!$) : string -> [> ] operand
+val ( !$ ) : string -> [> ] operand
 (** $ operande *)
+
+val malloc : int -> 'a asm
+(** [malloc n] alloue [n] octets sur la pile *)
