@@ -34,15 +34,16 @@ let unpack_1 = function Tmany [ x ] | x -> x
 let check_type loc ~expected typ =
   if expected <> unpack_1 typ then throw_expected_type loc ~expected typ
 
-let throw_if_not loc ~expected typ =
-  match (expected, typ) with
-  | `Struct, Tstruct _ | `Ptr, Tptr _ -> ()
-  | `Struct, err ->
-      error loc
-        (sprintf "expected a struct, got %s instead" (string_of_type err))
-  | `Ptr, err ->
-      error loc
-        (sprintf "expected a pointer, got %s instead" (string_of_type err))
+(* unused
+    let throw_if_not loc ~expected typ =
+   match (expected, typ) with
+   | `Struct, Tstruct _ | `Ptr, Tptr _ -> ()
+   | `Struct, err ->
+       error loc
+         (sprintf "expected a struct, got %s instead" (string_of_type err))
+   | `Ptr, err ->
+       error loc
+         (sprintf "expected a pointer, got %s instead" (string_of_type err))*)
 
 module Henv = struct
   open Hashtbl
@@ -107,10 +108,7 @@ let new_var ?(v_depth = 0) =
     }
 
 module Env : sig
-  type t = var M.t
-
   val empty : 'a M.t
-  val find : M.key -> 'a M.t -> 'a
   val find_exn : location -> 'a M.t -> M.key -> 'a
   val all_vars : var list ref
   val check_unused : unit -> unit
@@ -169,7 +167,7 @@ end
 
 let rec left_value expr =
   match expr.expr_desc with
-  | TEident v -> (*v.v_name <> "_"*) true
+  | TEident _ -> (*v.v_name <> "_"*) true
   | TEdot (el, _) -> left_value el
   | TEunop (Ustar, el) -> el.expr_desc <> TEnil
   | _ -> false
