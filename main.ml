@@ -40,26 +40,33 @@ let () =
     let c = open_out (Filename.chop_suffix file ".go" ^ ".s") in
     let fmt = formatter_of_out_channel c in
     X86_64.print_program fmt code;
-    close_out c
+    close_out c;
+    if !run then (
+      let file_name = Filename.chop_extension file in
+      Printf.sprintf "gcc -no-pie %s.s -o %s" file_name file_name
+      |> Sys.command |> ignore;
+      print_endline "Result:";
+      Printf.sprintf "./%s" file_name |> Sys.command |> ignore;
+      Printf.printf "\nexiting...\n%!")
   with
-  | GoLexer.Lexing_error s when not stack_trace->
+  | GoLexer.Lexing_error s when not stack_trace ->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "lexical error: %s\n@." s;
       exit 1
-  | GoParser.Error when not stack_trace->
+  | GoParser.Error when not stack_trace ->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
       eprintf "syntax error\n@.";
       exit 1
-  | Typing.Error (l, msg) when not stack_trace->
+  | Typing.Error (l, msg) when not stack_trace ->
       report_loc l;
       eprintf "error: %s\n@." msg;
       exit 1
-  | Typing.Anomaly msg when not stack_trace->
+  | Typing.Anomaly msg when not stack_trace ->
       eprintf "Typing Anomaly: %s\n@." msg;
       exit 2
   | GoCompile.Anomaly msg when not stack_trace ->
       eprintf "GoCompile Anomaly: %s\n@." msg;
       exit 2
-  | e when not stack_trace->
+  | e when not stack_trace ->
       eprintf "Anomaly: %s\n@." (Printexc.to_string e);
       exit 2

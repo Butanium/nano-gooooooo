@@ -8,6 +8,7 @@ let stack_trace = ref false
 let no_pretty = ref false
 let parse_only = ref false
 let type_only = ref false
+let run = ref false
 
 let spec =
   [ "--debug",        Arg.Set debug,        "\truns in debug mode";
@@ -15,6 +16,7 @@ let spec =
     "--no-pretty",    Arg.Set no_pretty,    "\tdisplays trees in the command line";
     "--parse-only",   Arg.Set parse_only,   "\tstops after parsing";
     "--type-only",    Arg.Set type_only,    "\tstops after typing";
+    "--run",          Arg.Set run,          "\truns the program"
   
     ]
 
