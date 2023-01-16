@@ -51,15 +51,18 @@ let new_label =
     incr r;
     "L_" ^ string_of_int !r
 
+module Env = Map.Make (String)
+
 type env = {
   exit_label : string;
-  ofs_this : int;
-  nb_locals : int ref; (* maximum *)
-  next_local : int; (* 0, 1, ... *)
+  (* local_vars : int Env.t; *)
+  nb_vars : int; (* nombre de variables locales dans la fonction *)
+  mutable current_var_ofs : int; (* offset of the last variable *)
+  mutable current_stack_ofs : int;
+      (* offset of the stack (par exemple si on calcule un tuple il y aura un offset car on empile les valeurs) *)
 }
-
-let empty_env =
-  { exit_label = ""; ofs_this = -1; nb_locals = ref 0; next_local = 0 }
+(* let empty_env =
+   { exit_label = ""; ofs_this = -1; nb_locals = ref 0; next_local = 0 } *)
 
 let mk_bool d = { expr_desc = d; expr_type = Tbool }
 (* f reçoit le label correspondant à ``renvoyer vrai''
@@ -78,7 +81,7 @@ let comp_to_jump label_true = function
   | Bge -> jge label_true
   | Beq -> je label_true
   | Bne -> jne label_true
-  | _ -> assert false
+  | _ -> failwith "comp_to_jump: not a comparison operator"
 
 let flag_to_rax op =
   let l_true = new_label () in
@@ -97,9 +100,26 @@ let int_binop = function
   | Bmul -> imulq !%rbx !%rax
   | Bdiv -> cqto ++ idivq !%rbx
   | Bmod -> cqto ++ idivq !%rbx ++ movq !%rdx !%rax
-  | _ -> assert false
+  | _ -> failwith "not a int_binop"
 
-let rec expr env e =
+let stack = rsp
+let add_ofs env = env.current_stack_ofs <- env.current_stack_ofs + 8
+
+let add_var env =
+  env.current_var_ofs <- env.current_var_ofs - 8;
+  env.current_var_ofs + 8
+
+let print_of_type e =
+  match e.expr_type with
+  | Tint -> "print_int"
+  | Tbool -> "print_bool"
+  | Tstring -> "print_string"
+  | Tptr _ -> "print_ptr"
+  | Tstruct _ -> failwith "TODO print struct"
+  | Twild -> raise (Anomaly "wild type in print")
+  | Tmany l -> failwith "TODO print many"
+
+let rec expr (env : env) e =
   match e.expr_desc with
   | TEskip -> empty_file
   | TEconstant (Cbool true) -> movq ctrue !%rax
@@ -162,60 +182,134 @@ let rec expr env e =
       ++ flag_to_rax op
       (* result of the comparaison should be in flag, we put it in rax *)
   | TEunop (Uneg, e1) ->
-      expr env e1 ++ movq (imm 0) !%rbx ++ subq !%rax !%rbx ++ movq !%rbx !%rax
+      expr env e1 ++ movq cfalse !%rbx ++ subq !%rax !%rbx ++ movq !%rbx !%rax
   | TEunop (Unot, e1) ->
       expr env e1
       ++ cmpq cfalse !%rax
       ++ movq cfalse !%rax
       ++ sete !%al (* set rax to non 0 if rax is 0 *)
-  | TEunop (Uamp, e1) -> (* TODO code pour & *) assert false
-  | TEunop (Ustar, e1) -> (* TODO code pour * *) assert false
-  | TEprint el -> (* TODO code pour Print *) assert false
-  | TEident x -> (* TODO code pour x *) assert false
-  | TEassign ([ { expr_desc = TEident x } ], [ e1 ]) ->
-      (* TODO code pour x := e *) assert false
+  | TEunop (Uamp, e1) -> (
+      match e1.expr_desc with
+      | TEident x ->
+          movq (ind ~ofs:(x.v_addr + env.current_stack_ofs) stack) !%rax
+      | TEdot (e, f) -> expr env e ++ movq (ind rax ~ofs:f.f_ofs) !%rax
+      | TEunop (Ustar, e) -> expr env e
+      | _ -> failwith "Uamp lv error")
+  | TEunop (Ustar, e1) -> expr env e1 ++ movq (ind rax) !%rax
+  | TEprint [ e ] ->
+      expr env e
+      ++ movq !%rax !%rdi
+      ++ call (print_of_type e)
+      ++ call "print_newline"
+  | TEprint el ->
+      List.fold_left
+        (fun acc e ->
+          acc
+          ++ call "print_space"
+          ++ expr env e
+          ++ movq !%rax !%rdi
+          ++ call (print_of_type e))
+        empty_file el
+      ++ call "print_newline"
+  | TEident x -> movq (ind ~ofs:x.v_addr stack) !%rax
+  | TEassign ([ { expr_desc = TEident x; _ } ], [ e1 ]) ->
+      expr env e1 ++ movq !%rax (ind ~ofs:x.v_addr stack)
   | TEassign ([ lv ], [ e1 ]) ->
-      (* TODO code pour x1,... := e1,... *) assert false
+      expr env e1
+      ++ pushq !%rax
+      ++ expr_lv env lv
+      ++ popq rbx
+      ++ movq !%rax (ind rbx)
   | TEassign (_, _) -> assert false
-  | TEblock el -> (* TODO code pour block *) assert false
+  | TEblock el -> List.fold_left (fun acc e -> acc ++ expr env e) empty_file el
   | TEif (e1, e2, e3) ->
-      expr e1 env
+      expr env e1
       ++ cmpq cfalse !%rax
       ++
       let l_false, l_skip = (new_label (), new_label ()) in
       je l_false
-      ++ expr e2 env
+      ++ expr env e2
       ++ jmp l_skip
       ++ label l_false
-      ++ expr e3 env
+      ++ expr env e3
       ++ label l_skip
   | TEfor (e1, e2) ->
       let l_start = new_label () in
       let l_end = new_label () in
       label l_start
-      ++ expr e1 env
+      ++ expr env e1
       ++ cmpq cfalse !%rax
       ++ je l_end
-      ++ expr e2 env
+      ++ expr env e2
       ++ jmp l_start
       ++ label l_end
   | TEnew ty ->
       let size = sizeof ty in
-      malloc (size + 1)
-      (* +1 to allow empty struct *)
+      malloc size
   | TEcall (f, el) -> (* TODO code pour appel fonction *) assert false
-  | TEdot (e1, { f_ofs = ofs }) -> (* TODO code pour e.f *) assert false
-  | TEvars _ -> assert false (* fait dans block *)
-  | TEreturn [] -> (* TODO code pour return e *) assert false
-  | TEreturn [ e1 ] -> (* TODO code pour return e1,... *) assert false
+  | TEdot (e1, { f_ofs = ofs; _ }) -> expr env e1 ++ movq (ind rax ~ofs) !%rax
+  | TEvars (vrs, [ { expr_type = Tmany (_ :: _ :: _); _ } ]) -> assert false
+  | TEvars (vrs, es) ->
+      assert (env.current_stack_ofs = 0);
+      (* on peut avoir des effets de bords mais bon... *)
+      List.fold_left2
+        (fun acc v e ->
+          let ofs = add_var env in
+          v.v_addr <- ofs;
+          expr env e ++ movq !%rax (ind ~ofs stack) ++ acc)
+        empty_file vrs es
+      (* mettre les valeurs calculées dans les variables *)
+  | TEreturn [] -> jmp env.exit_label
+  | TEreturn [ e1 ] -> expr env e1 ++ jmp env.exit_label
   | TEreturn _ -> assert false
-  | TEincdec (e1, op) -> (* TODO code pour return e++, e-- *) assert false
+  | TEincdec (e1, op) ->
+      expr_lv env e1
+      ++ movq (ind rax) !%rbx
+      ++ (if op = Inc then addq (imm 1) !%rbx else subq (imm 1) !%rbx)
+      ++ movq !%rbx (ind rax)
+
+and expr_lv env e =
+  (* retourne le pointeur vers e un lv *)
+  expr env @@ { expr_desc = TEunop (Uamp, e); expr_type = Tptr e.expr_type }
+
+let rec nb_vars { expr_desc; _ } =
+  match expr_desc with
+  | TEvars (vrs, _) ->
+      List.length
+        (List.filter
+           (fun x ->
+             x.v_used <- false;
+             (* pour dire qu'on a pas encore attribuer de place dans la pile *)
+             x.v_name <> "_")
+           vrs)
+  | TEblock b -> List.fold_left (fun x y -> x + nb_vars y) 0 b
+  | _ -> 0
 
 let function_ f e =
   if !debug then eprintf "function %s:@." f.fn_name;
   (* TODO code pour fonction *)
   let s = f.fn_name in
+  let nb_vars = nb_vars e in
+  let exit_function = "E_" ^ s in
+  let env =
+    {
+      exit_label = exit_function;
+      (*local_vars = Env.empty*)
+      nb_vars;
+      current_stack_ofs = 0;
+      current_var_ofs = 8 * nb_vars;
+    }
+  in
   label ("F_" ^ s)
+  ++ subq (imm (8 * nb_vars)) !%rsp
+  ++ pushq !%rbp
+  ++ movq !%rsp !%rbp
+  ++ expr env e
+  ++ label exit_function
+  ++ movq !%rbp !%rsp
+  ++ popq rbp
+  ++ addq (imm (8 * nb_vars)) !%rsp
+  ++ ret
 
 let decl code = function
   | TDfunction (f, e) -> code ++ function_ f e
@@ -234,18 +328,76 @@ let file ?debug:(b = false) dl =
       ++ xorq !%rax !%rax
       ++ ret
       ++ funs
+      (* TODO appel malloc de stdlib *)
       ++ inline
            "\n\
+            print_int_or_nil:\n\
+           \      test    %rdi, %rdi\n\
+           \      jz      print_nil\n\
+           \      movq    (%rdi), %rdi\n\
             print_int:\n\
-           \        movq    %rdi, %rsi\n\
-           \        movq    $S_int, %rdi\n\
-           \        xorq    %rax, %rax\n\
-           \        call    printf\n\
-           \        ret\n";
-    (* TODO print pour d'autres valeurs *)
-    (* TODO appel malloc de stdlib *)
+           \      movq    %rdi, %rsi\n\
+           \      movq    $S_int, %rdi\n\
+           \      xorq    %rax, %rax\n\
+           \      call    printf\n\
+           \      ret\n\
+            print_string:\n\
+           \      test    %rdi, %rdi\n\
+           \      jz      print_nil\n\
+           \      mov     %rdi, %rsi\n\
+           \      mov     $S_string, %rdi\n\
+           \      xorq    %rax, %rax\n\
+           \      call    printf\n\
+           \      ret\n\
+            print_nil:\n\
+           \      mov     $S_nil, %rdi\n\
+           \      xorq    %rax, %rax\n\
+           \      call    printf\n\
+           \      ret\n\
+            print_space:\n\
+           \      mov     $S_space, %rdi\n\
+           \      xorq    %rax, %rax\n\
+           \      call    printf\n\
+           \      ret\n\n\
+            print_newline:\n\
+           \      mov     $S_newline, %rdi\n\
+           \      xorq    %rax, %rax\n\
+           \      call    printf\n\
+           \      ret\n\
+            print_bool:\n\
+           \      xorq    %rax, %rax\n\
+           \      test    %rdi, %rdi\n\
+           \      jz      1f\n\
+           \      mov     $S_true, %rdi\n\
+           \      call    printf\n\
+           \      ret\n\
+            1:      mov     $S_false, %rdi\n\
+           \      call    printf\n\
+           \      ret\n\
+            allocz:\n\
+           \      movq    %rdi, %rbx\n\
+           \      call    malloc\n\
+           \      testq   %rbx, %rbx\n\
+           \      jnz     1f\n\
+           \      ret\n\
+            1:    movb    $0, (%rax, %rbx)\n\
+           \      decq    %rbx\n\
+           \      jnz     1b\n\
+           \      ret\n";
     data =
       label "S_int"
       ++ string "%ld"
+      ++ label "S_string"
+      ++ string "%s"
+      ++ label "S_true"
+      ++ string "true"
+      ++ label "S_false"
+      ++ string "false"
+      ++ label "S_nil"
+      ++ string "<nil>"
+      ++ label "S_space"
+      ++ string " "
+      ++ label "S_newline"
+      ++ string "\n"
       ++ Hashtbl.fold (fun l s d -> label l ++ string s ++ d) strings empty_file;
   }
