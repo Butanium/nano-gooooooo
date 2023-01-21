@@ -56,25 +56,27 @@ module Env = Map.Make (String)
 type env = {
   exit_label : string;
   (* local_vars : int Env.t; *)
-  nb_vars : int; (* nombre de variables locales dans la fonction *)
+  nb_args : int; (* nombre de variables locales dans la fonction *)
   mutable current_var_ofs : int; (* offset of the last variable *)
   mutable current_stack_ofs : int;
       (* offset of the stack (par exemple si on calcule un tuple il y aura un offset car on empile les valeurs) *)
 }
 
-let pushq op env =
-  env.current_stack_ofs <- env.current_stack_ofs + 8;
+let pushq op =
+  (* (match env with
+     | Some env -> env.current_stack_ofs <- env.current_stack_ofs + 8
+     | None -> ()); *)
   pushq op
 
-let popq op env =
-  env.current_stack_ofs <- env.current_stack_ofs - 8;
+let popq op =
+  (* env.current_stack_ofs <- env.current_stack_ofs - 8; *)
   (* raise (Anomaly "popq"); *)
   popq op
 
-let empty_env =
-  { exit_label = ""; nb_vars = 0; current_var_ofs = 0; current_stack_ofs = 0 }
+(* let empty_env =
+   { exit_label = ""; nb_args = 0; current_var_ofs = 0; current_stack_ofs = 0 } *)
 
-let mk_bool d = { expr_desc = d; expr_type = Tbool }
+let mk_expr d = { expr_desc = d; expr_type = Twild }
 (* f reçoit le label correspondant à ``renvoyer vrai''
    let compile_bool f =
      let l_true = new_label () and l_end = new_label () in
@@ -117,13 +119,11 @@ let stack = rsp
 (* let add_ofs env = env.current_stack_ofs <- env.current_stack_ofs + 8 *)
 
 let add_var env =
-  let res = env.current_var_ofs + env.current_stack_ofs in
-  Printf.eprintf "add_var: %d + %d = %d\n%!" env.current_var_ofs
-    env.current_stack_ofs res;
+  let res = env.current_var_ofs in
   env.current_var_ofs <- env.current_var_ofs - 8;
   res
 
-let ( & ) var env = var.v_addr + env.current_var_ofs
+let ( !& ) var = constint var.v_addr (* position relative à var_stack *)
 
 let print_of_type e =
   match e.expr_type with
@@ -165,15 +165,15 @@ let rec expr (env : env) e =
   | TEbinop (((Blt | Ble | Bgt | Bge) as op), e1, e2) ->
       (* Comparaison ints *)
       let e1 = expr env e1 in
-      let p = pushq !%rax env in
+      let p = pushq !%rax in
       let e2 = expr env e2 in
-      e1 ++ p ++ e2 ++ popq rbx env ++ cmpq !%rax !%rbx ++ flag_to_rax op
+      e1 ++ p ++ e2 ++ popq rbx ++ cmpq !%rax !%rbx ++ flag_to_rax op
   | TEbinop (((Badd | Bsub | Bmul | Bdiv | Bmod) as op), e1, e2) ->
       (* arithmetique ints *)
       let e1 = expr env e1 in
-      let push = pushq !%rax env in
+      let push = pushq !%rax in
       let e2 = expr env e2 in
-      e1 ++ push ++ e2 ++ popq rbx env ++ int_binop op
+      e1 ++ push ++ e2 ++ popq rbx ++ int_binop op
   | TEbinop (((Beq | Bne) as op), e1, e2) ->
       (* egalite toute valeur *)
       let e1as = expr env e1 in
@@ -185,12 +185,11 @@ let rec expr (env : env) e =
             | Tmany l -> false
           in
           let p =
-            if in_reg then pushq !%rax env
-            else empty_file (* save rax if needed *)
+            if in_reg then pushq !%rax else empty_file (* save rax if needed *)
           in
           p
           ++ expr env e2
-          ++ (if in_reg then popq rbx env
+          ++ (if in_reg then popq rbx
              else empty_file (* pop result if needed *))
           ++
           match e1.expr_type with
@@ -214,7 +213,7 @@ let rec expr (env : env) e =
       ++ sete !%al (* set rax to non 0 if rax is 0 *)
   | TEunop (Uamp, e1) -> (
       match e1.expr_desc with
-      | TEident x -> movq !%stack !%rax ++ addq (constint x.v_addr) !%rax
+      | TEident x -> movq !%var_stack !%rax ++ addq !&x !%rax
       | TEdot (e, f) -> expr env e ++ movq (ind rax ~ofs:f.f_ofs) !%rax
       | TEunop (Ustar, e) -> expr env e
       | _ -> failwith "Uamp lv error")
@@ -234,18 +233,19 @@ let rec expr (env : env) e =
           ++ call (print_of_type e))
         empty_file el
       ++ call "print_newline"
-  | TEident x -> movq (ind ~ofs:x.v_addr stack) !%rax
-  (* | TEassign ([ { expr_desc = TEident x; _ } ], [ e1 ]) ->
-      expr env e1 ++ movq !%rax (ind ~ofs:x.v_addr stack) *)
+  | TEident x -> movq (ind ~ofs:x.v_addr var_stack) !%rax
   | TEassign ([ lv ], [ e1 ]) ->
       let e1 = expr env e1 in
-      let push = pushq !%rax env in
+      let push = pushq !%rax in
       let lv =
         expr_lv env
           lv (* doit retourner l'adresse où est stocker la lv dans !%rax *)
       in
-      e1 ++ push ++ lv ++ popq rbx env ++ movq !%rax (ind rbx)
-  | TEassign (_, _) -> assert false
+      e1 ++ push ++ lv ++ popq rbx ++ movq !%rbx (ind rax)
+  | TEassign (lvs, es) ->
+      List.fold_left2
+        (fun acc lv e -> acc ++ expr env (mk_expr @@ TEassign ([ lv ], [ e ])))
+        empty_file lvs es
   | TEblock el -> List.fold_left (fun acc e -> acc ++ expr env e) empty_file el
   | TEif (e1, e2, e3) ->
       let l_false, l_skip = (new_label (), new_label ()) in
@@ -275,7 +275,14 @@ let rec expr (env : env) e =
   | TEnew ty ->
       let size = sizeof ty in
       malloc size
-  | TEcall (f, el) -> (* TODO code pour appel fonction *) assert false
+  | TEcall (f, el) ->
+      (* allocate space for the return values  *)
+      let ret_size = 8 * List.length f.return_types in
+      subq (constint ret_size) !%rsp
+      ++ List.fold_left
+           (fun acc e -> acc ++ expr env e ++ pushq !%rax)
+           empty_file el
+      ++ call ("F_" ^ f.fn_name)
   | TEdot (e1, { f_ofs = ofs; _ }) -> expr env e1 ++ movq (ind rax ~ofs) !%rax
   | TEvars (vrs, [ { expr_type = Tmany (_ :: _ :: _); _ } ]) -> assert false
   | TEvars (vrs, es) ->
@@ -284,12 +291,22 @@ let rec expr (env : env) e =
         (fun acc v e ->
           let ofs = add_var env in
           v.v_addr <- ofs;
-          expr env e ++ movq !%rax (ind ~ofs stack) ++ acc)
+          expr env e ++ movq !%rax (ind ~ofs var_stack) ++ acc)
         empty_file vrs es
       (* mettre les valeurs calculées dans les variables *)
   | TEreturn [] -> jmp env.exit_label
   | TEreturn [ e1 ] -> expr env e1 ++ jmp env.exit_label
-  | TEreturn _ -> assert false
+  | TEreturn l ->
+      let ofs = 8 + 8 + (8 * List.length l) + (8 * env.nb_args) in
+
+      (* le rbp dans la pile + l'adresse de retour
+         + 8*le nb de valeurs à retourner + 8* le nb d'args*)
+      let return_stack i = ind rbp ~ofs:(ofs + (i * 8)) in
+      List.fold_left
+        (fun (acc, i) e ->
+          (acc ++ expr env e ++ movq !%rax (return_stack i), i + 1))
+        (empty_file, 0) l
+      |> fst
   | TEincdec (e1, op) ->
       expr_lv env e1
       ++ movq (ind rax) !%rbx
@@ -299,7 +316,7 @@ let rec expr (env : env) e =
 and expr_lv env e =
   (* retourne le pointeur vers e un lv *)
   match e.expr_desc with
-  | TEident x -> movq !%stack !%rax ++ addq (constint (x & env)) !%rax
+  | TEident x -> movq !%var_stack !%rax ++ addq !&x !%rax
   (* on met l'adresse dans la pile de la variable (x & env)*)
   | TEdot (e, f) -> expr env e ++ addq (constint f.f_ofs) !%rax
   | TEunop (Ustar, e) -> expr env e
@@ -328,20 +345,24 @@ let function_ f e =
     {
       exit_label = exit_function;
       (*local_vars = Env.empty*)
-      nb_vars;
+      nb_args = List.length f.fn_params;
       current_stack_ofs = 0;
-      current_var_ofs = 8 * nb_vars;
+      current_var_ofs = 0;
     }
   in
   label ("F_" ^ s)
-  ++ pushq !%rbp empty_env
-  ++ movq !%rsp !%rbp
-  ++ subq (imm (8 * nb_vars)) !%rsp
-  ++ movq !%rsp !%rbp
+  ++ pushq !%var_stack (* old var_stack to restore it at the end *)
+  ++ movq !%stack !%var_stack
+  ++ subq (constint 8)
+       !%var_stack (* var_stack now points to the adress of the first var *)
+  ++ subq
+       (constint (8 * nb_vars))
+       !%stack (* allocate space for local variables *)
   ++ expr env e
   ++ label exit_function
-  ++ movq !%rbp !%rsp
-  ++ addq (imm (8 * nb_vars)) !%rsp
+  ++ movq !%var_stack !%stack
+  ++ addq (constint 8) !%stack (* restore stack *)
+  ++ popq var_stack (* restore var_stack *)
   ++ ret
 
 let decl code = function
