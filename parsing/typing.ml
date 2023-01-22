@@ -29,7 +29,7 @@ let throw_expected_type loc ~expected typ =
        (string_of_type typ))
 
 let throw_undeclared loc k = error loc (sprintf "undeclared name: %s" k)
-let unpack_1 = function Tmany [ x ] | x -> x
+let unfold_1 = function Tmany [ x ] | x -> x
 
 let rec eq_type ty1 ty2 =
   match (ty1, ty2) with
@@ -41,13 +41,12 @@ let rec eq_type ty1 ty2 =
   | Tmany t1, Tmany t2 ->
       List.length t1 = List.length t2 && List.for_all2 eq_type t1 t2
   | _ -> false
-(* myTODO check que c'est bien utilser *)
 
 let ( === ) = eq_type
 let ( ==! ) a b = a === b |> not
 
 let check_type loc ~expected typ =
-  if expected ==! unpack_1 typ then throw_expected_type loc ~expected typ
+  if expected ==! unfold_1 typ then throw_expected_type loc ~expected typ
 
 (* unused
     let throw_if_not loc ~expected typ =
@@ -218,7 +217,7 @@ let check_binop loc e1 e2 = function
       check_type loc ~expected:Tbool e1.expr_type;
       check_type loc ~expected:Tbool e2.expr_type
   | Beq | Bne ->
-      if unpack_1 e1.expr_type ==! unpack_1 e2.expr_type then
+      if unfold_1 e1.expr_type ==! unfold_1 e2.expr_type then
         error loc "Can't compare values of different types";
       if e1.expr_desc = TEnil && e2.expr_desc = TEnil then
         error loc "Can't compare 2 nil values"
@@ -301,7 +300,7 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
         check_binop loc e1 e2 op;
         (TEbinop (op, e1, e2), ret_binop op, false)
     | PEunop (op, e1) ->
-        let expr, rt = type_expr env depth e1 in
+        let expr, _ = type_expr env depth e1 in
         if op = Uamp then
           if not (left_value expr) then
             error loc "Can't take the address of a non left value";
@@ -392,7 +391,7 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
             lvl
         in
         (match List.find_opt (fun x -> not @@ left_value x) tlvls with
-        | Some x -> error loc "expected left value"
+        | Some _ -> error loc "expected left value"
         | _ -> ());
         let tels = List.map (just_expr env depth) el in
         let r_types = List.map (fun e -> e.expr_type) tels |> unfold_many loc in
@@ -472,8 +471,6 @@ let rec sizeof ?(loc = dummy_loc) = function
       else s_size
   | Tmany list ->
       List.fold_left (fun acc x -> acc + sizeof x) 0 list
-      (* TODO : ensure offset has no influence here
-         (we saw that in C you have offset when a field size is not a 8 mutiple )*)
   | Twild -> error loc "size of Twild is undefined"
 
 (* 2. declare functions and type fields *)
@@ -504,7 +501,7 @@ let phase2 structs funs = function
 
 (* 3. type check function bodies and compute size and offsets for sturct, also compute v_addr *)
 let decl (structs : structure Henv.t) (functions : function_ Henv.t) = function
-  | PDfunction { pf_name = { id; loc }; pf_body; pf_return_types; _ } ->
+  | PDfunction { pf_name = { id; loc }; pf_body; _ } ->
       let func = Henv.find functions id in
       let e, rt = type_function_body structs functions func pf_body in
       if (not rt) && func.return_types <> [] then
