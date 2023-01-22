@@ -382,6 +382,15 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
         | Some x -> error loc "expected left value"
         | _ -> ());
         let tels = List.map (just_expr env depth) el in
+        let r_types = List.map (fun e -> e.expr_type) tels |> unfold_many loc in
+        let l_types = List.map (fun e -> e.expr_type) tlvls in
+        if List.length l_types <> List.length r_types then
+          error loc
+            (Printf.sprintf "Expected %d values, got %d instead"
+               (List.length l_types) (List.length r_types));
+        List.iter2
+          (fun l r -> if l <> r then error loc "Type mismatch")
+          l_types r_types;
         (TEassign (tlvls, tels), tvoid, false)
     | PEreturn el ->
         let typed_els = List.map (fun e -> type_expr env depth e |> fst) el in
