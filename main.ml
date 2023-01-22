@@ -9,11 +9,12 @@ open Usage
 let compile_and_run file =
   let file_name = Filename.chop_extension file in
   let exit_code =
-    Printf.sprintf "gcc -no-pie %s.s -o %s" file_name file_name |> Sys.command
+    Printf.sprintf "gcc -no-pie %s.s -o %s.out" file_name file_name
+    |> Sys.command
   in
   if exit_code <> 0 then failwith "compilation of the assembly file failed";
   print_endline "Result:";
-  Printf.sprintf "./%s" file_name |> Sys.command |> ignore;
+  Printf.sprintf "./%s.out" file_name |> Sys.command |> ignore;
   Printf.printf "\nexiting...\n%!"
 
 let () =
@@ -22,9 +23,9 @@ let () =
   try
     let f = GoParser.file GoLexer.next_token lb in
     close_in c;
+    Printexc.record_backtrace (debug || stack_trace);
 
     if debug then (
-      Printexc.record_backtrace true;
       printf "debugging....\n%!";
       let ast_dot_file =
         open_out (Filename.chop_suffix file ".go" ^ "_ast.dot")
