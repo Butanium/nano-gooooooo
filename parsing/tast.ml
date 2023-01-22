@@ -32,7 +32,6 @@ and typ =
   | Twild (* type wildcard, tout type *)
   | Tmany of typ list
 (* 0 pour type retour instructions et >=2 pour retour functions *)
-(* TODO autres types pour l'analyse semantique, si besoin *)
 
 and var = {
   v_name : string;
@@ -43,7 +42,6 @@ and var = {
   mutable v_used : bool;
   mutable v_addr : int;
       (* adresse relative au pointer de frame (rbp) *)
-      (* TODO autres informations pour la production de code, si besoin *)
 }
 
 and expr = { expr_desc : expr_desc; expr_type : typ }
