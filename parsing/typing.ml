@@ -31,8 +31,23 @@ let throw_expected_type loc ~expected typ =
 let throw_undeclared loc k = error loc (sprintf "undeclared name: %s" k)
 let unpack_1 = function Tmany [ x ] | x -> x
 
+let rec eq_type ty1 ty2 =
+  match (ty1, ty2) with
+  | Tptr Twild, Tptr _ | Tptr _, Tptr Twild -> true
+  | Twild, _ | _, Twild -> true
+  | Tint, Tint | Tbool, Tbool | Tstring, Tstring -> true
+  | Tstruct s1, Tstruct s2 -> s1 == s2
+  | Tptr ty1, Tptr ty2 -> eq_type ty1 ty2
+  | Tmany t1, Tmany t2 ->
+      List.length t1 = List.length t2 && List.for_all2 eq_type t1 t2
+  | _ -> false
+(* myTODO check que c'est bien utilser *)
+
+let ( === ) = eq_type
+let ( ==! ) a b = a === b |> not
+
 let check_type loc ~expected typ =
-  if expected <> unpack_1 typ then throw_expected_type loc ~expected typ
+  if expected ==! unpack_1 typ then throw_expected_type loc ~expected typ
 
 (* unused
     let throw_if_not loc ~expected typ =
@@ -76,19 +91,6 @@ let rec type_type env_struct = function
   | PTptr ty -> Tptr (type_type env_struct ty)
   | PTident { id; loc } -> throw_undeclared loc id
 
-let rec eq_type ty1 ty2 =
-  match (ty1, ty2) with
-  | Tptr Twild, Tptr _ | Tptr _, Tptr Twild -> true
-  | Tint, Tint | Tbool, Tbool | Tstring, Tstring -> true
-  | Tstruct s1, Tstruct s2 -> s1 == s2
-  | Tptr ty1, Tptr ty2 -> eq_type ty1 ty2
-  | Tmany t1, Tmany t2 ->
-      List.length t1 = List.length t2 && List.for_all2 eq_type t1 t2
-  | _ -> false
-(* myTODO check que c'est bien utilser *)
-
-let ( === ) = eq_type
-let ( ==! ) a b = a === b |> not
 let fmt_used = ref false
 let fmt_imported = ref false
 let evar v = { expr_desc = TEident v; expr_type = v.v_typ }
@@ -155,7 +157,7 @@ end = struct
       if v.v_name <> "_" && not v.v_used then
         error v.v_loc (sprintf "unused variable %s" v.v_name)
     in
-    List.iter check !all_vars
+    if not !debug then List.iter check !all_vars
 
   let add_new_var x loc ~v_depth ?used ty env =
     let v = new_var x loc ~v_depth ?used ty in
@@ -268,7 +270,18 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
                   Env.add_new_var ~v_depth:depth name.id name.loc typ env
                 in
                 (env, var :: vars)
-              else (env, vars))
+              else
+                ( env,
+                  {
+                    v_name = "_";
+                    v_typ = Twild;
+                    v_used = true;
+                    v_depth = depth;
+                    v_addr = -1;
+                    v_id = -1;
+                    v_loc = name.loc;
+                  }
+                  :: vars ))
             (env, []) ids types
         in
         ( env,
@@ -331,11 +344,11 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
                    (string_of_type typ)))
           types func.fn_params;
         (TEcall (func, t_els), Tmany func.return_types, false)
-    | PEfor (e, b) ->
+    | PEfor (b, e) ->
         let b, _ = type_expr env depth b in
         check_type loc ~expected:Tbool b.expr_type;
         let e, _ = type_expr env (depth + 1) e in
-        (TEfor (e, b), tvoid, false)
+        (TEfor (b, e), tvoid, false)
     | PEif (e1, e2, e3) ->
         let f = type_expr env in
         let (e1, _), (e2, rtThen), (e3, rtElse) =
@@ -389,7 +402,7 @@ let type_function_body (structs : structure Henv.t) funs fun_ expr =
             (Printf.sprintf "Expected %d values, got %d instead"
                (List.length l_types) (List.length r_types));
         List.iter2
-          (fun l r -> if l <> r then error loc "Type mismatch")
+          (fun expected r -> check_type loc ~expected r)
           l_types r_types;
         (TEassign (tlvls, tels), tvoid, false)
     | PEreturn el ->
@@ -526,6 +539,5 @@ let file ~debug:b (imp, dl) =
   Henv.find_exn ~loc:dummy_loc function_env "main" |> ignore;
   let dl = List.map (decl struct_env function_env) dl in
   Env.check_unused ();
-  (* TODO variables non utilisees *)
   if imp && not !fmt_used then error dummy_loc "fmt imported but not used";
   dl
