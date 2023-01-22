@@ -111,7 +111,7 @@ exception Anomaly of string
                    val sizeof : ?loc:Ast.location -> Tast.typ -> int
                    val phase2 : Tast.structure Henv.t -> Tast.function_ Henv.t -> Ast.pdecl -> unit
                    val decl : Tast.structure Henv.t -> 'a -> Ast.pdecl -> Tast.tdecl *)
-
+val unfold_1 : Tast.typ -> Tast.typ
 val sizeof : ?loc:Ast.location -> Tast.typ -> int
 val tvoid : Tast.typ
 val file : debug:bool -> bool * Ast.pdecl list -> Tast.tdecl list
