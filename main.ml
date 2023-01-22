@@ -6,6 +6,16 @@ open GoLexer
 open GoParser
 open Usage
 
+let compile_and_run file =
+  let file_name = Filename.chop_extension file in
+  let exit_code =
+    Printf.sprintf "gcc -no-pie %s.s -o %s" file_name file_name |> Sys.command
+  in
+  if exit_code <> 0 then failwith "compilation of the assembly file failed";
+  print_endline "Result:";
+  Printf.sprintf "./%s" file_name |> Sys.command |> ignore;
+  Printf.printf "\nexiting...\n%!"
+
 let () =
   let c = open_in file in
   let lb = Lexing.from_channel c in
@@ -41,13 +51,7 @@ let () =
     let fmt = formatter_of_out_channel c in
     X86_64.print_program fmt code;
     close_out c;
-    if !run then (
-      let file_name = Filename.chop_extension file in
-      Printf.sprintf "gcc -no-pie %s.s -o %s" file_name file_name
-      |> Sys.command |> ignore;
-      print_endline "Result:";
-      Printf.sprintf "./%s" file_name |> Sys.command |> ignore;
-      Printf.printf "\nexiting...\n%!")
+    if !run then compile_and_run file
   with
   | GoLexer.Lexing_error s when not stack_trace ->
       report_loc (lexeme_start_p lb, lexeme_end_p lb);
