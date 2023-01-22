@@ -47,10 +47,11 @@ let new_string =
 
 let allocz n = movq (constint n) !%rdi ++ call "allocz"
 let sizeof = Typing.sizeof
+let unfold_typ = Typing.unfold_1
 
-let new_label ?(name = "") =
+let new_label =
   let r = ref 0 in
-  fun () ->
+  fun ?(name = "") () ->
     incr r;
     "L_" ^ name ^ (if name = "" then "" else "_") ^ string_of_int !r
 
@@ -66,29 +67,7 @@ type env = {
       (* offset of the stack (par exemple si on calcule un tuple il y aura un offset car on empile les valeurs) *)
 }
 
-let pushq op =
-  (* (match env with
-     | Some env -> env.current_stack_ofs <- env.current_stack_ofs + 8
-     | None -> ()); *)
-  pushq op
-
-let popq op =
-  (* env.current_stack_ofs <- env.current_stack_ofs - 8; *)
-  (* raise (Anomaly "popq"); *)
-  popq op
-
-(* let empty_env =
-   { exit_label = ""; nb_args = 0; current_var_ofs = 0; current_stack_ofs = 0 } *)
-
 let mk_expr d = { expr_desc = d; expr_type = Twild }
-(* f reçoit le label correspondant à ``renvoyer vrai''
-   let compile_bool f =
-     let l_true = new_label () and l_end = new_label () in
-     f l_true
-     ++ movq (imm 0) (reg rdi)
-     ++ jmp l_end ++ label l_true
-     ++ movq (imm 1) (reg rdi)
-     ++ label l_end *)
 
 let comp_to_jump label_true = function
   | Blt -> jl label_true
@@ -130,30 +109,34 @@ let add_var env =
 let ( !& ) var = constint var.v_addr (* position relative à var_stack *)
 let pr_string s = movq !$(new_string s) !%rdi ++ call "print_string"
 
-let rec print_of_type = function
+let rec print_of_type t =
+  match unfold_typ t with
   | Tint -> call "print_int"
   | Tbool -> call "print_bool"
   | Tstring -> call "print_string"
   | Tptr _ -> call "print_ptr"
   | Tstruct s ->
-      movq !%rdi !%rax
+      movq !%rdi !%rbx
       ++ (* save the struct *)
       pr_string s.s_name
-      ++ pr_string "{"
+      ++ pr_string " {"
       ++ Hashtbl.fold
            (fun _ field acc ->
              acc
              ++ pr_string (sprintf "%s = " field.f_name)
-             ++ pushq !%rax (* save the struct *)
-             ++ movq (ind rax ~ofs:field.f_ofs) !%rdi
+             ++ pushq !%rbx (* save the struct *)
+             ++ movq (ind rbx ~ofs:field.f_ofs) !%rdi
              ++ print_of_type field.f_typ
-             ++ popq rax (* restore the struct *))
+             ++ pr_string "; "
+             ++ popq rbx (* restore the struct *))
            s.s_fields empty_file
       ++ pr_string "}"
   | Twild -> raise (Anomaly "wild type in print")
   | Tmany l -> raise (Anomaly "many type in print")
 
 exception Do_Not_Assign
+
+let debug_line = ref 0
 
 let rec expr (env : env) e =
   match e.expr_desc with
@@ -202,7 +185,9 @@ let rec expr (env : env) e =
          ++ popq rbx
          ++
          match e1.expr_type with
-         | Tint | Tbool | Tptr _ -> cmpq !%rax !%rbx
+         | Tint | Tbool | Tptr _ | Tstruct _ -> cmpq !%rax !%rbx
+         (* Comme la sémantique d'éxecution de l'égalité n'est pas évoquée dans le sujet,
+            je me permet de faire une comparaison physique pour les structures *)
          | Tstring ->
              movq !%rax !%rdi
              ++ movq !%rbx !%rsi
@@ -210,7 +195,7 @@ let rec expr (env : env) e =
              ++ call "strcmp"
              ++ cmpq (imm 0) !%rax
          | Twild -> raise (Anomaly "wild type in comparaison")
-         | Tstruct _ | Tmany _ -> failwith "TODO comp")
+         | Tmany _ -> raise (Anomaly "many type in comparaison"))
       ++ flag_to_rax op
       (* result of the comparaison should be in flag, we put it in rax *)
   | TEunop (Uneg, e1) ->
@@ -220,10 +205,11 @@ let rec expr (env : env) e =
       ++ cmpq cfalse !%rax
       ++ movq cfalse !%rax
       ++ sete !%al (* set rax to non 0 if rax is 0 *)
+  | TEunop (Uamp, ({ expr_type = Tstruct _; _ } as e)) -> expr env e
   | TEunop (Uamp, e1) -> (
       match e1.expr_desc with
       | TEident x -> movq !%var_stack !%rax ++ addq !&x !%rax
-      | TEdot (e, f) -> expr env e ++ movq (ind rax ~ofs:f.f_ofs) !%rax
+      | TEdot (e, f) -> expr env e ++ addq (constint f.f_ofs) !%rax
       | TEunop (Ustar, e) -> expr env e
       | _ -> failwith "Uamp lv error")
   | TEunop (Ustar, e1) -> expr env e1 ++ movq (ind rax) !%rax
@@ -234,21 +220,12 @@ let rec expr (env : env) e =
               (code ++ movq (ind stack ~ofs) !%rdi ++ print_of_type t, ofs + 8))
             (empty_file, 0) types
          |> fst)
-  | TEprint [ e ] ->
-      expr env e
-      ++ movq !%rax !%rdi
-      ++ print_of_type e.expr_type
-      ++ call "print_newline"
+  | TEprint [ e ] -> expr env e ++ movq !%rax !%rdi ++ print_of_type e.expr_type
   | TEprint el ->
       List.fold_left
         (fun acc e ->
-          acc
-          ++ call "print_space"
-          ++ expr env e
-          ++ movq !%rax !%rdi
-          ++ print_of_type e.expr_type)
+          acc ++ expr env e ++ movq !%rax !%rdi ++ print_of_type e.expr_type)
         empty_file el
-      ++ call "print_newline"
   | TEident x -> movq (ind ~ofs:x.v_addr var_stack) !%rax
   | TEassign ([ lv ], [ e1 ]) -> (
       expr env e1
@@ -282,7 +259,15 @@ let rec expr (env : env) e =
       List.fold_left2
         (fun acc lv e -> acc ++ expr env (mk_expr @@ TEassign ([ lv ], [ e ])))
         empty_file lvs es
-  | TEblock el -> List.fold_left (fun acc e -> acc ++ expr env e) empty_file el
+  | TEblock el ->
+      List.fold_left
+        (fun acc e ->
+          let debug_header =
+            incr debug_line;
+            inline (sprintf "# line %d\n" !debug_line)
+          in
+          acc ++ debug_header ++ expr env e)
+        empty_file el
   | TEif (e1, e2, e3) ->
       let l_false, l_skip =
         (new_label ~name:"if_false" (), new_label ~name:"end_if" ())
@@ -352,7 +337,7 @@ let rec expr (env : env) e =
           | _ -> movq (constint 0) (ind ~ofs var_stack))
         empty_file vrs
   | TEvars (vrs, es) ->
-      (* on peut avoir des effets de bords mais bon... *)
+      (* todo corrigé le fait qu'il y a des effets de bord dans a,b = b, a-b *)
       if !debug then
         Printf.eprintf "TEvars: %d vars, %d expr\n%!" (List.length vrs)
           (List.length es);
@@ -527,7 +512,7 @@ let file ?debug:(b = false) dl =
       ++ label "S_string"
       ++ string "%s"
       ++ label "S_ptr"
-      ++ string "<%ld>"
+      ++ string "<%p>"
       ++ label "S_true"
       ++ string "true"
       ++ label "S_false"
