@@ -75,4 +75,5 @@ L'ordre d'évaluation se fait de droite à gauche. Après avoir perdu un après 
 J'ai eu quelque soucis avec les left values qui causaient des segmentations fault. J'avais oublié que les structures étaient déjà des pointeurs et donc j'essayais de les modifier à partir de la pile.
 
 # Conclusion
-Ce projet m'aura permis d'accroitre ma compréhension de code assembleur et de me rendre que la syntaxe du C n'est pas si mauvaise que ça après tout. Du côté d'OCaml, j'ai appris que l'ordre d'évaluation des opérateurs est de droite à gauche et qu'il est difficile de le modifier. Ce projet m'a aussi apporté beaucoup de larmes et de douleur. Je suis définitivement convaincu que la compilation n'est pas pour moi.
+Ce projet m'aura permis d'accroitre ma compréhension du code assembleur et de me rendre compte que la syntaxe du C n'est pas si mauvaise que ça après tout. Du côté d'OCaml, j'ai appris que l'ordre d'évaluation des opérateurs est de droite à gauche et qu'il est difficile de le modifier. Ce projet m'a aussi apporté beaucoup de larmes et de douleur : "Nul bonum sine dolore" (Aucun bien sans douleur).
+Je suis définitivement convaincu que la compilation n'est pas pour moi.
