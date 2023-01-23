@@ -8,16 +8,15 @@
 
    fonction : arguments sur la pile, résultat dans %rax ou sur la pile
 
-            res k
-            ...
             res 1
-            arg n
             ...
+            res k
             arg 1
-            adr. retour
-   rbp ---> ancien rbp
             ...
-            var locales
+            arg n
+            adr. retour
+            ancien rbp
+   rbp ---> var locales
             ...
             calculs
    rsp ---> ...
@@ -55,16 +54,10 @@ let new_label =
     incr r;
     "L_" ^ name ^ (if name = "" then "" else "_") ^ string_of_int !r
 
-module Env = Map.Make (String)
-
 type env = {
   exit_label : string;
-  (* local_vars : int Env.t; *)
   nb_args : int; (* nombre de variables locales dans la fonction *)
-  mutable current_var_ofs : int;
-      (* offset of the last variable *)
-      (* mutable current_stack_ofs : int; *)
-      (* offset of the stack (par exemple si on calcule un tuple il y aura un offset car on empile les valeurs) *)
+  mutable current_var_ofs : int; (* offset of the last variable *)
 }
 
 let mk_expr d = { expr_desc = d; expr_type = Twild }
@@ -138,8 +131,8 @@ exception Do_Not_Assign
 
 let debug_line = ref 0
 
-let rec expr (env : env) e =
-  match e.expr_desc with
+let rec expr (env : env) _e =
+  match _e.expr_desc with
   | TEskip -> empty_file
   | TEconstant (Cbool true) -> movq ctrue !%rax
   | TEconstant (Cbool false) -> movq cfalse !%rax
@@ -228,6 +221,7 @@ let rec expr (env : env) e =
         empty_file el
   | TEident x -> movq (ind ~ofs:x.v_addr var_stack) !%rax
   | TEassign ([ lv ], [ e1 ]) -> (
+      if !debug then eprintf "assign 1 lv 1 e\n%!";
       expr env e1
       ++
       try
@@ -238,7 +232,7 @@ let rec expr (env : env) e =
         ++ movq !%rbx (ind rax)
       with Do_Not_Assign ->
         empty_file (* if the expr should be assigned to _, we just ignore it *))
-  | TEassign (lv, [ ({ expr_type = Tmany (t :: ts); _ } as e) ]) ->
+  | TEassign (lv, [ ({ expr_type = Tmany (_ :: _ :: _); _ } as e) ]) ->
       expr env e
       ++ (List.fold_left
             (fun (code, r_ofs) lv ->
@@ -256,9 +250,14 @@ let rec expr (env : env) e =
       if !debug then
         Printf.eprintf "assign %d lvs %d es\n%!" (List.length lvs)
           (List.length es);
-      List.fold_left2
-        (fun acc lv e -> acc ++ expr env (mk_expr @@ TEassign ([ lv ], [ e ])))
-        empty_file lvs es
+      List.fold_left
+        (fun acc le -> acc ++ expr env le ++ pushq !%rax)
+        empty_file es
+      ++ (List.rev lvs
+         |> List.fold_left
+              (fun acc lv ->
+                acc ++ expr_lv env lv ++ popq rbx ++ movq !%rbx (ind rax))
+              empty_file)
   | TEblock el ->
       List.fold_left
         (fun acc e ->
@@ -266,6 +265,7 @@ let rec expr (env : env) e =
             incr debug_line;
             inline (sprintf "# line %d\n" !debug_line)
           in
+          if !debug then eprintf "# line %d\n%!" !debug_line;
           acc ++ debug_header ++ expr env e)
         empty_file el
   | TEif (e1, e2, e3) ->
@@ -337,7 +337,6 @@ let rec expr (env : env) e =
           | _ -> movq (constint 0) (ind ~ofs var_stack))
         empty_file vrs
   | TEvars (vrs, es) ->
-      (* todo corrigé le fait qu'il y a des effets de bord dans a,b = b, a-b *)
       if !debug then
         Printf.eprintf "TEvars: %d vars, %d expr\n%!" (List.length vrs)
           (List.length es);
