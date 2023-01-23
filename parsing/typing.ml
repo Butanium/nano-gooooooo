@@ -48,17 +48,6 @@ let ( ==! ) a b = a === b |> not
 let check_type loc ~expected typ =
   if expected ==! unfold_1 typ then throw_expected_type loc ~expected typ
 
-(* unused
-    let throw_if_not loc ~expected typ =
-   match (expected, typ) with
-   | `Struct, Tstruct _ | `Ptr, Tptr _ -> ()
-   | `Struct, err ->
-       error loc
-         (sprintf "expected a struct, got %s instead" (string_of_type err))
-   | `Ptr, err ->
-       error loc
-         (sprintf "expected a pointer, got %s instead" (string_of_type err))*)
-
 module Henv = struct
   open Hashtbl
 
@@ -469,8 +458,7 @@ let rec sizeof ?(loc = dummy_loc) = function
         strukt.s_size <- size;
         size)
       else s_size
-  | Tmany list ->
-      List.fold_left (fun acc x -> acc + sizeof x) 0 list
+  | Tmany list -> List.fold_left (fun acc x -> acc + sizeof x) 0 list
   | Twild -> error loc "size of Twild is undefined"
 
 (* 2. declare functions and type fields *)
