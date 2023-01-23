@@ -2,6 +2,6 @@ _build
 .*
 ngoc
 *.dot
-*.go
 *.s
 *.out
+compare_out*
