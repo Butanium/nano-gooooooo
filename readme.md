@@ -1,5 +1,4 @@
-<!-- image centrée -->
-  <img src="https://labs.openai.com/s/YequNy9AjWRLlS4810M7bMVq" alt="segmentation fault depicted as a monster, digital art"/>
+![segmentation fault depicted as a monster, digital art](https://labs.openai.com/s/YequNy9AjWRLlS4810M7bMVq)
 
 # Point manquant 
 - Copie récursive des structures pour passage par valeur. Pas facile à implémenter et requierant beaucoup de debugging, j'ai préféré le laisser de coté pour me concentrer sur la robustesse du reste du code.
