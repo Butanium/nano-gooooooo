@@ -4,3 +4,4 @@ ngoc
 *.dot
 *.go
 *.s
+*.out
