@@ -1,3 +1,6 @@
+<!-- image centrée -->
+  <img src="https://labs.openai.com/s/YequNy9AjWRLlS4810M7bMVq" alt="segmentation fault depicted as a monster, digital art"/>
+
 # Point manquant 
 - Copie récursive des structures pour passage par valeur. Pas facile à implémenter et requierant beaucoup de debugging, j'ai préféré le laisser de coté pour me concentrer sur la robustesse du reste du code.
 
@@ -25,4 +28,39 @@ Le typing n'a pas grand chose d'intéressant algorithmiquement parlant, le plus 
 Un simple type record suffit. Je n'ai besoin que du label de sortie, du nombre d'arguments et de la position relative de la dernière variable locale au pointeur de variable `%rbp`.
 
 ### Détails d'implémentation
-Chaque type a sa fonction de `print`, seul les structures ont un print un peu élaboré qui print récursivement les différents fields de la structure. J'ai donné des noms aux labels et ai inclus des numéro de ligne correspondants aux lignes du fichier source pour faciliter le débogage.
+Chaque type a sa fonction de `print`, seul les structures ont un print un peu élaboré qui print récursivement les différents fields de la structure. J'ai donné des noms aux labels et ai inclus des numéro de ligne correspondants aux lignes du fichier source pour faciliter le débogage. Petite modification par rapport à la disposition recommandée dans le sujet : les résultats et arguments sont dans l'ordre croissant.
+```
+étiquettes
+     F_function      entrée fonction
+     E_function      sortie fonction
+     L_xxx           sauts
+     S_xxx           chaîne
+
+   expression calculée avec la pile si besoin, résultat final dans %rdi
+
+   fonction : arguments sur la pile, résultat dans %rax ou sur la pile
+
+            res 1
+            ...
+            res k
+            arg 1
+            ...
+            arg n
+            adr. retour
+            ancien rbp
+   rbp ---> var locales
+            ...
+            calculs
+   rsp ---> ...
+```
+Je gère le cas des effets de bords de assign en mettant chaque expr à droite du égal sur la pile. L'égalité entre structure est physique et je ne les passe pas par valeurs lors des appels de fonction. Ce sont les deux faiblesses de mon compilateur. J'ai modifié le code de `new_string` afin d'éviter les doublons.
+Le code pourrait être rendu plus compact en créant des fonctions pour les différents `print_struct`.
+
+### Difficultés rencontrées
+Au début je n'ai pas compris l'intêret d'utiliser `%rbp`. J'avais une solution alternative mais elle requierait beaucoup d'effet de bords pour mon environnement ce qui entraîna un nombre de bug assez conséquent notemmant dû qu'au fait que dans 
+```x86asm
+pushq %rax ++ expr env e1 ++ popq %rax
+```
+L'ordre d'évaluation se fait de droite à gauche. Après avoir perdu un après midi à chercher à changer cela, j'ai enfin compris l'utilité de `%rbp` et ai pu corriger mon code. Une fois tout cela compris l'appel de fonction a été assez simple à implémenter.
+
+J'ai eu quelque soucis avec les left values qui causaient des segmentation fault. J'avais oublié que les structures étaient déjà des pointeurs et donc j'essayais de les modifié à partir de la pile.
