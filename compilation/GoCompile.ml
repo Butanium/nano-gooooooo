@@ -129,7 +129,6 @@ let rec print_of_type t =
 
 exception Do_Not_Assign
 
-let debug_line = ref 0
 
 let rec expr (env : env) _e =
   match _e.expr_desc with
@@ -238,7 +237,7 @@ let rec expr (env : env) _e =
             (fun (code, r_ofs) lv ->
               ( (code
                 ++
-                try
+                try (* If Do_Not_Assign is raised, we just ignore the lv (it's _) *)
                   expr_lv env lv
                   ++ movq (ind stack ~ofs:r_ofs) !%rbx
                   ++ movq !%rbx (ind rax)
@@ -259,6 +258,7 @@ let rec expr (env : env) _e =
                 acc ++ expr_lv env lv ++ popq rbx ++ movq !%rbx (ind rax))
               empty_file)
   | TEblock el ->
+      let debug_line = ref 0 in 
       List.fold_left
         (fun acc e ->
           let debug_header =
