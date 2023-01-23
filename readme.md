@@ -1,4 +1,8 @@
-![segmentation fault depicted as a monster, digital art](https://labs.openai.com/s/YequNy9AjWRLlS4810M7bMVq)
+# Error : segmentation fault, depicted as a monster, digital art
+<p align="center">
+  <img src="https://i.imgur.com/nmlb6ds.png" alt="segmentation fault depicted as a monster, digital art"/></p>
+
+![segmentation fault depicted as a monster, digital art](https://i.imgur.com/nmlb6ds.png)
 
 # Point manquant 
 - Copie récursive des structures pour passage par valeur. Pas facile à implémenter et requierant beaucoup de debugging, j'ai préféré le laisser de coté pour me concentrer sur la robustesse du reste du code.
