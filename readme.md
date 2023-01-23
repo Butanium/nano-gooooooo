@@ -63,6 +63,8 @@ Chaque type a sa fonction de `print`, seules les structures ont un print un peu 
 Je gère le cas des effets de bords de assign en mettant chaque expr à droite du égal sur la pile. L'égalité entre structure est physique et je ne les passe pas par valeurs lors des appels de fonction. Ce sont les deux faiblesses de mon compilateur. J'ai modifié le code de `new_string` afin d'éviter les doublons.
 Le code pourrait être rendu plus compact en créant des fonctions pour les différents `print_struct`.
 
+Je stocke les résultats des expressions dans `%rax` et je n'ai pas d'autres callee saved que `%rbx`. 
+
 ### Difficultés rencontrées
 Au début, je n'ai pas compris l'intêret d'utiliser `%rbp`. J'avais une solution alternative, mais elle requérait beaucoup d'effet de bords pour mon environnement, ce qui entraîna un nombre de bugs assez conséquent, notamment dû qu'au fait que dans 
 ```x86asm
